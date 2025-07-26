@@ -19,9 +19,9 @@ class TopScreen extends StatelessWidget {
             // お父さん機能ボタン
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 10.0),
-              child: SizedBox( // ボタンのサイズを制御するためにSizedBoxでラップ
-                width: 250, // 幅を大きくする
-                height: 70, // 高さを大きくする
+              child: SizedBox(
+                width: 250,
+                height: 70,
                 child: ElevatedButton(
                   onPressed: () {
                     Navigator.push(
@@ -31,9 +31,9 @@ class TopScreen extends StatelessWidget {
                   },
                   style: ElevatedButton.styleFrom(
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10), // 角を丸くする
+                      borderRadius: BorderRadius.circular(10),
                     ),
-                    textStyle: const TextStyle(fontSize: 24), // テキストサイズを大きくする
+                    textStyle: const TextStyle(fontSize: 24),
                   ),
                   child: const Text('お父さん機能'),
                 ),
@@ -42,9 +42,9 @@ class TopScreen extends StatelessWidget {
             // お母さん機能ボタン
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 10.0),
-              child: SizedBox( // ボタンのサイズを制御するためにSizedBoxでラップ
-                width: 250, // 幅を大きくする
-                height: 70, // 高さを大きくする
+              child: SizedBox(
+                width: 250,
+                height: 70,
                 child: ElevatedButton(
                   onPressed: () {
                     Navigator.push(
@@ -54,9 +54,9 @@ class TopScreen extends StatelessWidget {
                   },
                   style: ElevatedButton.styleFrom(
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10), // 角を丸くする
+                      borderRadius: BorderRadius.circular(10),
                     ),
-                    textStyle: const TextStyle(fontSize: 24), // テキストサイズを大きくする
+                    textStyle: const TextStyle(fontSize: 24),
                   ),
                   child: const Text('お母さん機能'),
                 ),
@@ -65,9 +65,9 @@ class TopScreen extends StatelessWidget {
             // 共通機能ボタン
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 10.0),
-              child: SizedBox( // ボタンのサイズを制御するためにSizedBoxでラップ
-                width: 250, // 幅を大きくする
-                height: 70, // 高さを大きくする
+              child: SizedBox(
+                width: 250,
+                height: 70,
                 child: ElevatedButton(
                   onPressed: () {
                     Navigator.push(
@@ -77,9 +77,9 @@ class TopScreen extends StatelessWidget {
                   },
                   style: ElevatedButton.styleFrom(
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10), // 角を丸くする
+                      borderRadius: BorderRadius.circular(10),
                     ),
-                    textStyle: const TextStyle(fontSize: 24), // テキストサイズを大きくする
+                    textStyle: const TextStyle(fontSize: 24),
                   ),
                   child: const Text('共通機能'),
                 ),

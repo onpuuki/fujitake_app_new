@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:fujitake_app_new/screens/prompt_copy_screen.dart';
 import 'package:fujitake_app_new/screens/debug_screen.dart';
 import 'package:fujitake_app_new/screens/father_todo_list_screen.dart';
-import 'package:fujitake_app_new/screens/favorite_websites_list_screen.dart'; // ★追加★ お気に入りサイト画面をインポート
+import 'package:fujitake_app_new/screens/favorite_websites_list_screen.dart'; // インポート
 
 class FatherScreen extends StatelessWidget {
   const FatherScreen({super.key});
@@ -36,11 +36,11 @@ class FatherScreen extends StatelessWidget {
                     ),
                     textStyle: const TextStyle(fontSize: 24),
                   ),
-                  child: const Text('お父さんのTODOリスト'),
+                  child: const Text('お父さんのTODO'),
                 ),
               ),
             ),
-            // お気に入りサイトボタン ★追加★
+            // ★お気に入りサイトボタン (ここに追加)★
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 10.0),
               child: SizedBox(

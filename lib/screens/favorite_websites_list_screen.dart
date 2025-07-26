@@ -1,12 +1,11 @@
+// lib/screens/favorite_websites_list_screen.dart
+
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:url_launcher/url_launcher.dart'; // URLを開くためにインポート
-import 'package:fujitake_app_new/screens/favorite_website_registration_screen.dart'; // 登録画面をインポート
-import 'package:firebase_storage/firebase_storage.dart'; // Firebase Storageをインポート
-
-// アプリケーションIDは仕様の例に基づきハードコード。
-const String _appId = 'fujitake_family_app';
+import 'package:fujitake_app_new/models/favorite_website_model.dart';
+import 'package:fujitake_app_new/screens/favorite_website_registration_screen.dart';
+import 'package:fujitake_app_new/services/firestore_service.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class FavoriteWebsitesListScreen extends StatefulWidget {
   const FavoriteWebsitesListScreen({super.key});
@@ -16,190 +15,167 @@ class FavoriteWebsitesListScreen extends StatefulWidget {
 }
 
 class _FavoriteWebsitesListScreenState extends State<FavoriteWebsitesListScreen> {
-  String? _userId;
-
-  @override
-  void initState() {
-    super.initState();
-    _userId = FirebaseAuth.instance.currentUser?.uid;
-    if (_userId == null) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('ユーザーIDが取得できませんでした。Firebase認証を確認してください。')),
-        );
-      });
-    }
-  }
-
-  // Firestoreのお気に入りサイトコレクション参照を取得するヘルパーメソッド
-  CollectionReference<Map<String, dynamic>> _getFavoriteWebsitesCollection() {
-    if (_userId == null) {
-      throw Exception("ユーザーIDがnullです。Firestoreにアクセスできません。");
-    }
-    // コレクションパス: artifacts/{appId}/users/{userId}/favoriteWebsites
-    return FirebaseFirestore.instance
-        .collection('artifacts')
-        .doc(_appId)
-        .collection('users')
-        .doc(_userId)
-        .collection('favoriteWebsites');
-  }
-
-  // URLを開く
-  Future<void> _launchUrl(String urlString) async {
-    final Uri url = Uri.parse(urlString);
-    if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('URLを開けませんでした: $urlString')),
-      );
-    }
-  }
-
-  // お気に入りサイトを削除する
-  Future<void> _deleteFavoriteWebsite(String docId) async {
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: const Text('お気に入りサイトを削除'),
-          content: const Text('このお気に入りサイトを削除してもよろしいですか？'),
-          actions: <Widget>[
-            TextButton(
-              child: const Text('キャンセル'),
-              onPressed: () {
-                Navigator.of(context).pop();
-              },
-            ),
-            TextButton(
-              child: const Text('削除'),
-              onPressed: () async {
-                Navigator.of(context).pop();
-                try {
-                  // 画像URLがあればStorageからも削除
-                  final docSnapshot = await _getFavoriteWebsitesCollection().doc(docId).get();
-                  final data = docSnapshot.data() as Map<String, dynamic>? ?? {};
-                  final imageUrl = data['imageUrl'] as String?;
-                  if (imageUrl != null && imageUrl.isNotEmpty) {
-                    try {
-                      await FirebaseStorage.instance.refFromURL(imageUrl).delete();
-                    } catch (storageError) {
-                      print('Storageからの画像削除エラー: $storageError');
-                    }
-                  }
-
-                  await _getFavoriteWebsitesCollection().doc(docId).delete();
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('お気に入りサイトを削除しました！')),
-                  );
-                } catch (e) {
-                  print('お気に入りサイト削除エラー: $e');
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('お気に入りサイトの削除に失敗しました: $e')),
-                  );
-                }
-              },
-            ),
-          ],
-        );
-      },
-    );
-  }
+  final FirestoreService _firestoreService = FirestoreService();
+  String? _activeFilter; // "manga", "video", or null
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: const Text('お気に入りサイト'),
-      ),
-      body: _userId == null
-          ? const Center(child: CircularProgressIndicator())
-          : StreamBuilder<QuerySnapshot>(
-              stream: _getFavoriteWebsitesCollection().orderBy('timestamp', descending: true).snapshots(),
-              builder: (context, snapshot) {
-                if (snapshot.hasError) {
-                  print('Firestore Stream Error (Favorite Websites): ${snapshot.error}');
-                  return Center(child: Text('エラーが発生しました: ${snapshot.error}'));
-                }
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-                if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-                  return const Center(child: Text('お気に入りサイトはまだありません。\n右下の＋ボタンで追加してください。'));
-                }
-
-                return ListView.builder(
-                  itemCount: snapshot.data!.docs.length,
-                  itemBuilder: (context, index) {
-                    DocumentSnapshot doc = snapshot.data!.docs[index];
-                    final data = doc.data() as Map<String, dynamic>? ?? {};
-                    final String title = data['title'] as String? ?? '無題のサイト';
-                    final String url = data['url'] as String? ?? '';
-                    final String? imageUrl = data['imageUrl'] as String?;
-                    final String memo = data['memo'] as String? ?? '';
-
-                    return Card(
-                      margin: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
-                      elevation: 2.0,
-                      child: ListTile(
-                        leading: imageUrl != null && imageUrl.isNotEmpty
-                            ? SizedBox(
-                                width: 50,
-                                height: 50,
-                                child: ClipRRect(
-                                  borderRadius: BorderRadius.circular(8.0),
-                                  child: Image.network(
-                                    imageUrl,
-                                    fit: BoxFit.cover,
-                                    errorBuilder: (context, error, stackTrace) {
-                                      return const Icon(Icons.broken_image, size: 40, color: Colors.grey);
-                                    },
-                                  ),
-                                ),
-                              )
-                            : const Icon(Icons.link, size: 40, color: Colors.blueGrey), // 画像がない場合のアイコン
-                        title: Text(title),
-                        subtitle: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(url, style: const TextStyle(fontSize: 12, color: Colors.blue)),
-                            if (memo.isNotEmpty) Text('メモ: $memo', style: const TextStyle(fontSize: 12, color: Colors.grey)),
-                          ],
-                        ),
-                        onTap: () => _launchUrl(url), // タップでURLを開く
-                        onLongPress: () => _deleteFavoriteWebsite(doc.id), // 長押しで削除
-                        trailing: IconButton(
-                          icon: const Icon(Icons.edit),
-                          onPressed: () {
-                            // 編集画面へ遷移
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (context) => FavoriteWebsiteRegistrationScreen(
-                                  docId: doc.id,
-                                  initialUrl: url,
-                                  initialTitle: title,
-                                  initialMemo: memo,
-                                  initialImageUrl: imageUrl,
-                                ),
-                              ),
-                            );
-                          },
-                        ),
-                      ),
-                    );
+        actions: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8.0),
+            child: Wrap(
+              spacing: 8.0,
+              children: [
+                FilterChip(
+                  label: const Text('漫画'),
+                  selected: _activeFilter == 'manga',
+                  onSelected: (selected) {
+                    setState(() => _activeFilter = selected ? 'manga' : null);
                   },
-                );
-              },
+                ),
+                FilterChip(
+                  label: const Text('動画'),
+                  selected: _activeFilter == 'video',
+                  onSelected: (selected) {
+                    setState(() => _activeFilter = selected ? 'video' : null);
+                  },
+                ),
+              ],
             ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () {
-          // 登録画面へ遷移（新規登録）
-          Navigator.push(
-            context,
-            MaterialPageRoute(builder: (context) => const FavoriteWebsiteRegistrationScreen()),
+          )
+        ],
+      ),
+      body: StreamBuilder<QuerySnapshot>(
+        stream: _firestoreService.getFavoriteWebsitesStream(_activeFilter),
+        builder: (context, snapshot) {
+          if (snapshot.hasError) {
+            return Center(child: Text('エラーが発生しました: ${snapshot.error}'));
+          }
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (snapshot.data!.docs.isEmpty) {
+            return const Center(child: Text('サイトはまだ登録されていません。'));
+          }
+
+          return ListView.builder(
+            padding: const EdgeInsets.all(8.0),
+            itemCount: snapshot.data!.docs.length,
+            itemBuilder: (context, index) {
+              final website = FavoriteWebsite.fromFirestore(snapshot.data!.docs[index]);
+
+              Color cardColor = Theme.of(context).cardColor;
+              if (website.tag == 'manga') {
+                cardColor = Colors.green.shade50;
+              } else if (website.tag == 'video') {
+                cardColor = Colors.blue.shade50;
+              }
+
+              return Card(
+                elevation: 2.0,
+                color: cardColor,
+                margin: const EdgeInsets.symmetric(vertical: 6.0),
+                child: ListTile(
+                  contentPadding: const EdgeInsets.all(12.0),
+                  leading: GestureDetector(
+                    onTap: () {
+                      if (website.imageUrl != null) {
+                        showDialog(
+                          context: context,
+                          builder: (_) => Dialog(
+                            child: InteractiveViewer(
+                              child: Image.network(website.imageUrl!),
+                            ),
+                          ),
+                        );
+                      }
+                    },
+                    child: Container(
+                      width: 80,
+                      height: 80,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(8),
+                        color: Colors.grey.shade200,
+                        image: website.imageUrl != null
+                            ? DecorationImage(
+                                image: NetworkImage(website.imageUrl!),
+                                fit: BoxFit.cover,
+                              )
+                            : null,
+                      ),
+                      child: website.imageUrl == null
+                          ? const Icon(Icons.public, size: 40, color: Colors.grey)
+                          : null,
+                    ),
+                  ),
+                  title: Text(website.title, style: const TextStyle(fontWeight: FontWeight.bold)),
+                  subtitle: Text(website.url, maxLines: 1, overflow: TextOverflow.ellipsis),
+                  trailing: IconButton(
+                    icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
+                    onPressed: () => _confirmDelete(context, website),
+                  ),
+                  onTap: () async {
+                    try {
+                      final uri = Uri.parse(website.url);
+                      if (await canLaunchUrl(uri)) {
+                        await launchUrl(uri, mode: LaunchMode.externalApplication);
+                      }
+                    } catch (e) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('URLを開けませんでした: ${website.url}')),
+                      );
+                    }
+                  },
+                ),
+              );
+            },
           );
         },
+      ),
+      floatingActionButton: FloatingActionButton(
         child: const Icon(Icons.add),
+        onPressed: () {
+          Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => const FavoriteWebsiteRegistrationScreen()),
+          );
+        },
+      ),
+    );
+  }
+
+  void _confirmDelete(BuildContext context, FavoriteWebsite website) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('削除の確認'),
+        content: Text('「${website.title}」を削除しますか？\nこの操作は取り消せません。'),
+        actions: [
+          TextButton(
+            child: const Text('キャンセル'),
+            onPressed: () => Navigator.of(ctx).pop(),
+          ),
+          TextButton(
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('削除'),
+            onPressed: () async {
+              try {
+                await _firestoreService.deleteFavoriteWebsite(website.id, website.imageUrl);
+                Navigator.of(ctx).pop();
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('「${website.title}」を削除しました')),
+                );
+              } catch (e) {
+                 Navigator.of(ctx).pop();
+                 ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('削除に失敗しました: $e')),
+                );
+              }
+            },
+          ),
+        ],
       ),
     );
   }

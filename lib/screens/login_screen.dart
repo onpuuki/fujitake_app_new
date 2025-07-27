@@ -19,6 +19,10 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _isLoading = false;
   bool _rememberMe = true; // 「常にログイン状態にする」チェックボックスの状態
 
+  // SharedPreferencesのキー
+  static const String _rememberMeKey = 'rememberMe';
+  static const String _lastLoggedInUserIdKey = 'lastLoggedInUserId'; // 最後にログインしたユーザーIDを保存するキー
+
   @override
   void initState() {
     super.initState();
@@ -29,14 +33,14 @@ class _LoginScreenState extends State<LoginScreen> {
   Future<void> _loadRememberMe() async {
     final prefs = await SharedPreferences.getInstance();
     setState(() {
-      _rememberMe = prefs.getBool('rememberMe') ?? true; // デフォルトはtrue
+      _rememberMe = prefs.getBool(_rememberMeKey) ?? true; // デフォルトはtrue
     });
   }
 
   // 「常にログイン状態にする」設定を保存
   Future<void> _saveRememberMe(bool value) async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('rememberMe', value);
+    await prefs.setBool(_rememberMeKey, value);
   }
 
   // ログイン処理
@@ -47,15 +51,23 @@ class _LoginScreenState extends State<LoginScreen> {
       });
 
       try {
-        // ログイン状態の永続化設定
-        await FirebaseAuth.instance.setPersistence(
-          _rememberMe ? Persistence.LOCAL : Persistence.SESSION,
-        );
+        // ★修正★ setPersistence() はウェブプラットフォームのみでサポートされているため、ネイティブアプリでは削除します。
+        // ネイティブアプリではFirebase Authenticationがデフォルトで認証状態を永続化します。
+        // await FirebaseAuth.instance.setPersistence(
+        //   _rememberMe ? Persistence.LOCAL : Persistence.SESSION,
+        // );
 
-        await FirebaseAuth.instance.signInWithEmailAndPassword(
+        final UserCredential userCredential = await FirebaseAuth.instance.signInWithEmailAndPassword(
           email: _emailController.text.trim(),
           password: _passwordController.text.trim(),
         );
+
+        // ログイン成功時にユーザーIDをSharedPreferencesに保存
+        if (userCredential.user != null) {
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString(_lastLoggedInUserIdKey, userCredential.user!.uid);
+          print('ログインしたユーザーIDをSharedPreferencesに保存しました: ${userCredential.user!.uid}');
+        }
 
         // ログイン成功
         ScaffoldMessenger.of(context).showSnackBar(
@@ -75,6 +87,8 @@ class _LoginScreenState extends State<LoginScreen> {
           message = 'パスワードが間違っています。';
         } else if (e.code == 'invalid-email') {
           message = 'メールアドレスの形式が正しくありません。';
+        } else if (e.code == 'too-many-requests') {
+          message = '連続したログイン試行によりブロックされています。しばらくしてからお試しください。';
         }
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(message)),
@@ -183,12 +197,16 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                     ),
                     // 新規登録の誘導（今回はログイン機能のみのためコメントアウト）
-                    // TextButton(
-                    //   onPressed: () {
-                    //     // 新規登録画面への遷移ロジック
-                    //   },
-                    //   child: const Text('アカウントをお持ちでない場合'),
-                    // ),
+                    TextButton(
+                      onPressed: () {
+                        // ここに新規登録画面への遷移ロジックを追加できます。
+                        // 今回の要件には含まれていないため、必要であれば後で実装。
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('新規登録機能はまだ実装されていません。')),
+                        );
+                      },
+                      child: const Text('アカウントをお持ちでない場合（未実装）'),
+                    ),
                   ],
                 ),
               ),

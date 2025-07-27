@@ -29,36 +29,39 @@ void main() async {
 
     // ★重要★ FirebaseプロジェクトのAPIキー、App ID、Project IDをここに直接ハードコードしてください
     // Firebaseコンソールの「プロジェクトの設定」->「全般」タブで確認できます
-    const String firebaseApiKey = 'AIzaSyBgAG7G22KAdK-Ba0OdAJIo1VPH6fGI'; // あなたのAPIキー
-    const String firebaseAppId = '1:1072509148760:android:670e5b70d30f3674ca1db5'; // あなたのApp ID (Android)
+    const String firebaseApiKey = 'AIzaSyAbAg7G23kcAdX-Ba0odAJlo1iVlpH6fGI'; // あなたのAPIキー (google-services.jsonから確認)
+    const String firebaseAppId = '1:1072509148760:android:182d09a0b43612ef08342d'; // ★修正★ google-services.jsonのfujitake_app_newのmobilesdk_app_id
     const String firebaseMessagingSenderId = '1072509148760'; // あなたのMessaging Sender ID
     const String firebaseProjectId = 'fujitake-sumaho'; // あなたのProject ID
+    const String firebaseStorageBucket = 'fujitake-sumaho.appspot.com'; // あなたのStorage Bucket
 
 
     // Firebaseアプリを初期化
-    // FirebaseOptionsのすべての必須プロパティを明示的に指定し、DefaultFirebaseOptionsに依存しないようにする
+    // FirebaseOptionsのすべてのプロパティを、firebaseConfigから取得できる場合はそれを使用し、
+    // できない場合はハードコードした値またはnullを設定する
     await Firebase.initializeApp(
-      options: const FirebaseOptions( // const キーワードを追加してコンパイル時定数にする
-        apiKey: firebaseApiKey,
-        appId: firebaseAppId,
-        messagingSenderId: firebaseMessagingSenderId,
-        projectId: firebaseProjectId,
-        // 以下はnull許容型なので、明示的にnullを設定
-        authDomain: null, // Canvas環境ではnullで問題ないことが多い
-        databaseURL: null,
-        storageBucket: null,
-        measurementId: null,
+      options: FirebaseOptions(
+        apiKey: firebaseConfig['apiKey'] as String? ?? firebaseApiKey, // firebaseConfigから取得、なければハードコード
+        appId: firebaseConfig['appId'] as String? ?? firebaseAppId,   // firebaseConfigから取得、なければハードコード
+        messagingSenderId: firebaseConfig['messagingSenderId'] as String? ?? firebaseMessagingSenderId, // firebaseConfigから取得、なければハードコード
+        projectId: firebaseConfig['projectId'] as String? ?? firebaseProjectId, // firebaseConfigから取得、なければハードコード
+        authDomain: firebaseConfig['authDomain'] as String?,
+        databaseURL: firebaseConfig['databaseURL'] as String?,
+        storageBucket: firebaseConfig['storageBucket'] as String? ?? firebaseStorageBucket, // ★修正★ Storage Bucketをハードコード
+        measurementId: firebaseConfig['measurementId'] as String?,
       ),
     );
     print('Firebase initialized successfully.');
 
     // ログイン状態の永続化設定を読み込み、Firebase Authenticationに適用
-    final prefs = await SharedPreferences.getInstance();
-    final bool rememberMe = prefs.getBool('rememberMe') ?? true; // デフォルトはtrue
-    await FirebaseAuth.instance.setPersistence(
-      rememberMe ? Persistence.LOCAL : Persistence.SESSION, // NONEはセッション永続化なし
-    );
-    print('Firebase Authentication persistence set to: ${rememberMe ? "LOCAL" : "SESSION"}');
+    // ★setPersistence() はウェブプラットフォームのみでサポートされているため、ネイティブアプリでは削除します。
+    // ネイティブアプリではFirebase Authenticationがデフォルトで認証状態を永続化します。
+    // final prefs = await SharedPreferences.getInstance();
+    // final bool rememberMe = prefs.getBool('rememberMe') ?? true; // デフォルトはtrue
+    // await FirebaseAuth.instance.setPersistence(
+    //   rememberMe ? Persistence.LOCAL : Persistence.SESSION,
+    // );
+    // print('Firebase Authentication persistence set to: ${rememberMe ? "LOCAL" : "SESSION"}');
 
 
     // FirestoreServiceのユーザーIDを初期化する

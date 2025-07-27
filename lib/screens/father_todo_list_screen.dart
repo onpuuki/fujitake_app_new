@@ -54,7 +54,7 @@ class _FatherTodoListScreenState extends State<FatherTodoListScreen> {
         .collection('artifacts')
         .doc(_appId)
         .collection('users')
-        .doc(_userId)
+        .doc(_userId!) // _userIdがnullでないことを保証
         .collection('fatherTodos');
   }
 
@@ -66,7 +66,7 @@ class _FatherTodoListScreenState extends State<FatherTodoListScreen> {
         .collection('artifacts')
         .doc(_appId)
         .collection('users')
-        .doc(_userId)
+        .doc(_userId!) // _userIdがnullでないことを保証
         .collection('favoriteTodoCategories');
   }
 
@@ -303,6 +303,69 @@ class _FatherTodoListScreenState extends State<FatherTodoListScreen> {
     }
   }
 
+  // チェックされたTODOのみを一括削除する
+  Future<void> _bulkDeleteCompletedTodos() async {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('完了したTODOを削除'),
+          content: const Text('チェック済みのTODOをすべて削除してもよろしいですか？この操作は元に戻せません。'),
+          actions: <Widget>[
+            TextButton(
+              child: const Text('キャンセル'),
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+            ),
+            TextButton(
+              child: const Text('削除'),
+              onPressed: () async {
+                Navigator.of(context).pop(); // ダイアログを閉じる
+                try {
+                  final QuerySnapshot todosSnapshot = await _getTodoCollection()
+                      .where('isCompleted', isEqualTo: true) // 完了済みのTODOのみを対象
+                      .get();
+
+                  if (todosSnapshot.docs.isEmpty) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('削除する完了済みTODOはありません。')),
+                    );
+                    return;
+                  }
+
+                  final WriteBatch batch = FirebaseFirestore.instance.batch();
+                  for (var doc in todosSnapshot.docs) {
+                    final data = doc.data() as Map<String, dynamic>? ?? {};
+                    final imageUrl = data['imageUrl'] as String?;
+                    if (imageUrl != null && imageUrl.isNotEmpty) {
+                      try {
+                        await FirebaseStorage.instance.refFromURL(imageUrl).delete();
+                      } catch (storageError) {
+                        print('Storageからの画像削除エラー (完了TODO一括削除時): $storageError');
+                      }
+                    }
+                    batch.delete(doc.reference);
+                  }
+                  await batch.commit();
+
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('完了したTODOをすべて削除しました！')),
+                  );
+                } catch (e) {
+                  print('完了TODO一括削除エラー: $e');
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('完了したTODOの削除に失敗しました: $e')),
+                  );
+                }
+              },
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   Future<void> _bulkDeleteAllTodos() async {
     showDialog(
       context: context,
@@ -377,6 +440,12 @@ class _FatherTodoListScreenState extends State<FatherTodoListScreen> {
               );
             },
             tooltip: 'お気に入りTODOを管理',
+          ),
+          // チェックされたTODOのみを一括削除するボタンを追加
+          IconButton(
+            icon: const Icon(Icons.check_circle_outline), // チェックマークのアイコン
+            onPressed: _bulkDeleteCompletedTodos,
+            tooltip: '完了したTODOを削除',
           ),
           IconButton(
             icon: const Icon(Icons.delete_sweep),

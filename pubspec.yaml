@@ -44,6 +44,7 @@ dependencies:
   share_plus: ^11.0.0
   url_launcher: ^6.3.2
   # receive_sharing_intent: ^1.8.1 # 共有機能は一時的に無効化
+  image_cropper: ^9.1.0 # ここに最新バージョンを記述
   # --- ここまで追加 ---
 
 dev_dependencies:

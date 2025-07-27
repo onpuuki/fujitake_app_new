@@ -31,6 +31,24 @@
             android:name="flutterEmbedding"
             android:value="2" />
     </application>
+    <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- ギャラリーからの画像選択とカメラ使用のための権限 -->
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/>
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"/>
+    <uses-permission android:name="android.permission.CAMERA"/>
+
+    <!-- Android 13 (API 33) 以降の場合、READ_MEDIA_IMAGES も必要になることがあります -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES"/>
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO"/>
+
+    <application
+        android:label="fujitake_app_new"
+        android:name="${applicationName}"
+        android:icon="@mipmap/ic_launcher"
+        android:requestLegacyExternalStorage="true"> <!-- Android 10 (API 29) 以降で画像選択に問題がある場合に追加 (非推奨) -->
+        <!-- ... 既存のコード ... -->
+    </application>
+</manifest>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and
          https://developer.android.com/reference/android/content/Intent#ACTION_PROCESS_TEXT.
@@ -43,3 +61,4 @@
         </intent>
     </queries>
 </manifest>
+

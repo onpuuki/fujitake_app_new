@@ -60,8 +60,9 @@ class FirestoreService {
         .collection('artifacts')
         .doc(_appId)
         .collection('public') // 共通データのためpublic
-        .collection('data')
-        .doc('userProfiles') // userProfilesコレクションのドキュメントを特定
+        .doc('data') // ★修正★ .doc('data') を追加
+        .collection('userProfiles') // userProfilesコレクションのドキュメントを特定
+        .doc('profiles') // ★修正★ .doc('profiles') を追加
         .collection('profiles') // サブコレクションに各ユーザーのプロフィールを保存
         .withConverter<UserProfile>(
           fromFirestore: (snapshot, _) => UserProfile.fromFirestore(snapshot),

@@ -6,7 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart'; // ★追加★ Sha
 import 'package:fujitake_app_new/screens/login_screen.dart';
 import 'package:fujitake_app_new/screens/user_profile_screen.dart';
 import 'package:fujitake_app_new/services/firestore_service.dart';
-import 'package:fujitake_app_new/models/user_profile_model.dart';
+import 'package:fujitake_app_new/models/user_profile_model.dart'; // UserProfileモデル
 
 class UserMenuButton extends StatefulWidget {
   const UserMenuButton({super.key});

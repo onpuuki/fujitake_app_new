@@ -3,108 +3,74 @@
 
 機能一覧 (Feature List)
 トップ画面 (TopScreen)
-
 アプリの主要機能への入り口。
-
 「お父さん機能」「お母さん機能」「共通機能」への遷移ボタン。
 
 お父さん機能 (FatherScreen)
-
 お父さん専用機能への入り口。
-
 「お父さんのTODOリスト」「プロンプトコピー」「デバッグ機能」「お気に入りサイト」への遷移ボタン。
 
 お父さんのTODOリスト (FatherTodoListScreen)
-
 お父さん個人のTODOリストを管理。
-
 TODOの追加、完了/未完了切り替え、削除、編集（TODO名、期限日、備考）。
-
 TODO一覧画面で期限日と時間を表示し、期日が近い順にソート。
-
 チェックしたTODOのみ一括削除する機能。
-
 「お気に入りから一括登録」ボタンにより、定義済みのお気に入りTODOカテゴリ（デイリー、ウィークリー、イヤリーなど）から複数のTODOを自動期限日設定で一括登録。
-
 すべてのTODOを一括削除する機能。
 
 TODO詳細画面 (TodoDetailScreen)
-
 特定のTODOの詳細を表示・編集。
-
 TODO名、期限日、備考の編集。
-
 TODO1個につき画像を1個添付・表示・拡大・削除。
 
 お気に入りTODO管理画面 (FavoriteTodoManagementScreen)
-
 「お気に入りから一括登録」されるTODOカテゴリ（名称、タイプ、表示順序）の追加、編集、削除。
-
 各カテゴリに紐づくTODOアイテム（内容、備考、表示順序）の追加、編集、削除。
 
 プロンプトコピー (PromptCopyScreen)
-
 プロンプト（AIへの指示文など）を保存し、画像例を添付して管理、簡単にクリップボードへコピー。
-
 保存されたプロンプトと画像URLは家族間で共有可能。
 
 デバッグ機能 (DebugScreen)
-
 アプリのデバッグやエラーログの確認。
 
 お母さん機能 (MotherScreen)
-
 現在準備中（Coming Soon!）。
 
 共通機能 (SharedScreen)
-
 家族全員で利用する共通機能への入り口。
-
 「お願いごと機能」「メッセージ」への遷移ボタン。
 
 お願いごと機能 (RequestListScreen)
-
 家族間のお願いごとを共有・管理。
-
 お願いごとの追加、完了/未完了切り替え、お気に入り/解除、削除、編集（TODOリストと同様）。
 
 お願いごと詳細 (RequestDetailScreen)
-
 特定のお願いごとの詳細を表示し、期限やお気に入り状態を設定。
 
 メッセージ (MessageScreen)
-
 現在準備中。
 
 設定 (SettingsScreen)
-
 アプリの設定を行う画面（パスワード設定など）。
 
 お気に入りサイト (FavoriteWebsitesListScreen)
-
 WEBサイトのお気に入り一覧表示。
-
-画像サムネイル付きでサイトを保存し、一覧から画像を確認しつつWEBページに遷移。
-
-サイトの追加、編集、削除。
-
+画像サムネイル付きでサイトを保存し、一覧から画像を確認しつつWEBページに遷移。リストの項目をタップすることで、サイトのURLに直接遷移します。
+サイトの追加、編集、削除。一覧画面のレコードを長押しすることで、登録内容を編集できます。
 一覧画面上の画像をタップすると、画像が拡大表示される。
-
 漫画と動画のフィルタリングボタンを配置し、ON/OFFで表示を切り替え。何も選択していない場合は全URLを表示。
-
 登録されたサイトのタイプ（漫画/動画）に応じて、一覧表示のボックスの背景色を薄緑（漫画）と薄青（動画）にする。
 
 お気に入りサイト登録・編集画面 (FavoriteWebsiteRegistrationScreen)
-
-お気に入りサイトのURL、サイト名、メモ、画像添付（手動スクリーンショット）の登録・編集。
-
+お気に入りサイトのURL、サイト名、メモ、画像添付の登録・編集。
+画像を添付した際、自動でトリミング画面に移行し、切り取った画像を添付できます。
+サイト名が未入力の場合は、入力されたURLからサイトのタイトルを自動で取得し、サイト名として登録します。タイトルが取得できない場合は「無題」と登録されます。
 サイトのタイプ（漫画/動画）をタグ付けして登録できる。
-
 Chromeの共有機能からのURL自動入力。
 
 注意: スマートフォンのセキュリティ制約上、共有元のサイトのスクリーンショットをアプリが自動で取得し、任意の位置を切り取って添付する機能は実装しません。 ユーザーが手動でスクリーンショットを撮り、それをギャラリーから選択して添付する形となります。
-
-注意: サイト登録完了後、添付した画像をギャラリーから自動で削除する機能は、OSのプライバシー制約によりユーザーの明示的な許可が必要となる場合がありますが、許可ありきで実装を検討します。
+注意: 添付した元の画像をスマホのギャラリーから自動で削除する機能は、OSのプライバシー制約により実装しません。 ユーザーがギャラリーから元の画像を削除するには、手動での操作が必要です。
 
 技術スタック (Tech Stack)
 フロントエンド: Flutter
@@ -119,6 +85,10 @@ intl (日付フォーマット)
 
 image_picker (画像選択)
 
+image_cropper (画像トリミング)
+
+uuid (一意なID生成)
+
 flutter_datetime_picker_plus (日付/時刻ピッカー)
 
 clipboard (クリップボード操作)
@@ -126,6 +96,10 @@ clipboard (クリップボード操作)
 share_plus (共有機能)
 
 url_launcher (URL起動)
+
+http (HTTPリクエスト用)
+
+html (HTML解析用)
 
 receive_sharing_intent (共有データ受け取り - 現在一時的に無効化)
 
@@ -135,7 +109,6 @@ AIツール (開発支援): OpenHands, Cursor, OpenAI
 
 データベース設計 (Data Structure)
 artifacts/{appId}/users/{userId}/fatherTodos (お父さん個人のTODO)
-
 text (string): TODO内容
 
 isCompleted (boolean): 完了状態
@@ -149,7 +122,6 @@ memo (string, nullable): 備考
 imageUrl (string, nullable): 添付画像のURL
 
 artifacts/{appId}/users/{userId}/favoriteTodoCategories (お気に入りTODOカテゴリ)
-
 name (string): カテゴリ名 (例: デイリータスク)
 
 type (string): 期限日計算タイプ ("daily", "weekly", "yearly", "other")
@@ -165,7 +137,6 @@ order (number): 表示順序
 memo (string, nullable): 備考
 
 artifacts/{appId}/public/data/prompts (共有プロンプト)
-
 text (string): プロンプト内容
 
 imageUrl (string, nullable): 添付画像のURL
@@ -173,7 +144,6 @@ imageUrl (string, nullable): 添付画像のURL
 timestamp (timestamp): 作成日時
 
 artifacts/{appId}/public/data/requests (共有お願いごと)
-
 text (string): お願いごと内容
 
 isCompleted (boolean): 完了状態
@@ -191,7 +161,6 @@ memo (string, nullable): 備考
 imageUrl (string, nullable): 添付画像のURL
 
 artifacts/{appId}/users/{userId}/favoriteWebsites (お気に入りサイト)
-
 url (string): サイトURL
 
 title (string): サイト名

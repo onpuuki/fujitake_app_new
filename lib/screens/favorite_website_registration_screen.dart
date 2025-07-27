@@ -6,6 +6,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:image_cropper/image_cropper.dart'; // image_cropper をインポート
 import 'package:uuid/uuid.dart'; // ファイル名生成のためにUUIDをインポート
+import 'package:http/http.dart' as http; // HTTPリクエスト用
+import 'package:html/parser.dart' as htmlParser; // HTML解析用
 import '../models/favorite_website_model.dart';
 import '../services/firestore_service.dart';
 // import 'package:receive_sharing_intent/receive_sharing_intent.dart'; // 共有機能 - 一時的に無効化
@@ -71,7 +73,7 @@ class _FavoriteWebsiteRegistrationScreenState extends State<FavoriteWebsiteRegis
   }
   */
 
-  // URLから簡易的にタイトルを推測するヘルパー関数
+  // URLから簡易的にタイトルを推測するヘルパー関数 (既存)
   String _extractTitleFromUrl(String url) {
     try {
       final uri = Uri.parse(url);
@@ -81,6 +83,21 @@ class _FavoriteWebsiteRegistrationScreenState extends State<FavoriteWebsiteRegis
     } catch (e) {
       return ''; // パース失敗時は空文字列
     }
+  }
+
+  // URLからサイトのタイトルを非同期で取得する関数 (新規追加)
+  Future<String?> _fetchSiteTitle(String url) async {
+    try {
+      final response = await http.get(Uri.parse(url));
+      if (response.statusCode == 200) {
+        final document = htmlParser.parse(response.body);
+        final titleElement = document.querySelector('title');
+        return titleElement?.text.trim();
+      }
+    } catch (e) {
+      print('サイトタイトルの取得に失敗しました: $e');
+    }
+    return null; // 取得失敗またはタイトルなしの場合
   }
 
   // 画像を選択し、トリミングを行う
@@ -127,12 +144,12 @@ class _FavoriteWebsiteRegistrationScreenState extends State<FavoriteWebsiteRegis
     }
 
     // MEMO: 添付した画像の自動削除について
-    // OSのプライバシー制約により、アプリがユーザーのギャラリーから直接画像を自動削除することは非常に困難です。
-    // Android 10+ や iOS 14+ では、アプリがギャラリーの画像を直接削除するには特別な権限やユーザーの同意が必要です。
-    // ImagePickerで取得される画像は、通常はアプリのキャッシュディレクトリに一時的に保存されるため、
-    // アプリが終了すると自動的に削除されることが多いですが、ユーザーがギャラリーから「元の画像」を選択した場合、
-    // その元の画像をアプリが直接削除することはできません。
-    // そのため、ここではユーザーに削除を促すメッセージを表示するなどの代替手段を検討してください。
+    // OSのプライバシー制約（Android 10+ / iOS 14+）により、アプリがユーザーのギャラリーから直接元の画像を自動削除することは、
+    // 非常に困難であり、通常はユーザーの明示的な許可や特別な権限が必要となります。
+    // ImagePickerで取得されるファイルパスは、多くの場合アプリの一時キャッシュディレクトリ内のファイルを指しており、
+    // アプリが終了すると自動的に削除されることが期待されます。
+    // しかし、ユーザーがギャラリーから選択した「元の画像」自体をアプリが削除することは、セキュリティ上の理由から直接はできません。
+    // そのため、この機能は実装せず、ユーザーに手動での削除を促す形となります。
     // 例: ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('元の画像はギャラリーから手動で削除してください。')));
   }
 
@@ -169,8 +186,13 @@ class _FavoriteWebsiteRegistrationScreenState extends State<FavoriteWebsiteRegis
         imageUrl = null;
       }
 
-      // サイト名が空の場合、「無題」を設定
-      final String siteTitle = _titleController.text.isEmpty ? '無題' : _titleController.text;
+      String siteTitle = _titleController.text.trim(); // 入力されたサイト名を取得し、前後の空白を削除
+
+      // サイト名が空の場合、URLからタイトルを取得
+      if (siteTitle.isEmpty) {
+        final fetchedTitle = await _fetchSiteTitle(_urlController.text);
+        siteTitle = fetchedTitle ?? '無題'; // 取得できなければ「無題」
+      }
 
       final website = FavoriteWebsite(
         id: widget.websiteToEdit?.id, // 編集の場合はIDを渡す
@@ -247,16 +269,10 @@ class _FavoriteWebsiteRegistrationScreenState extends State<FavoriteWebsiteRegis
                     TextFormField(
                       controller: _titleController,
                       decoration: const InputDecoration(
-                        labelText: 'サイト名 (任意)', // ラベルを「任意」に変更
+                        labelText: 'サイト名 (未入力の場合、URLから自動取得)', // ラベルを更新
                         border: OutlineInputBorder(),
                       ),
-                      // サイト名は必須ではなくなったため、validatorを削除または修正
-                      // validator: (value) {
-                      //   if (value == null || value.isEmpty) {
-                      //     return 'サイト名を入力してください';
-                      //   }
-                      //   return null;
-                      // },
+                      // サイト名は必須ではなくなったため、validatorを削除
                     ),
                     const SizedBox(height: 16),
                     TextFormField(

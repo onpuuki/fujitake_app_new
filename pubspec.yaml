@@ -45,6 +45,9 @@ dependencies:
   url_launcher: ^6.3.2
   # receive_sharing_intent: ^1.8.1 # 共有機能は一時的に無効化
   image_cropper: ^9.1.0 # ここに最新バージョンを記述
+   # 新しく追加するパッケージ
+  http: ^1.2.0 # HTTPリクエスト用
+  html: ^0.15.4 # HTML解析用
   # --- ここまで追加 ---
 
 dev_dependencies:

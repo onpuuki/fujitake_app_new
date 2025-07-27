@@ -1,106 +1,77 @@
-// lib/screens/login_screen.dart
+// lib/screens/registration_screen.dart
 
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart'; // ログイン状態の永続化に使用
-import 'package:fujitake_app_new/screens/top_screen.dart'; // ログイン成功後の遷移先
-import 'package:fujitake_app_new/screens/registration_screen.dart'; // ★追加★ 新規登録画面をインポート
+import 'package:fujitake_app_new/screens/top_screen.dart'; // 登録成功後の遷移先
 
-class LoginScreen extends StatefulWidget {
-  const LoginScreen({super.key});
+class RegistrationScreen extends StatefulWidget {
+  const RegistrationScreen({super.key});
 
   @override
-  State<LoginScreen> createState() => _LoginScreenState();
+  State<RegistrationScreen> createState() => _RegistrationScreenState();
 }
 
-class _LoginScreenState extends State<LoginScreen> {
+class _RegistrationScreenState extends State<RegistrationScreen> {
   final _formKey = GlobalKey<FormState>();
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
+  final TextEditingController _confirmPasswordController = TextEditingController();
   bool _isLoading = false;
-  bool _rememberMe = true; // 「常にログイン状態にする」チェックボックスの状態
 
-  // SharedPreferencesのキー
-  static const String _rememberMeKey = 'rememberMe';
-  static const String _lastLoggedInUserIdKey = 'lastLoggedInUserId'; // 最後にログインしたユーザーIDを保存するキー
+  // SharedPreferencesのキー (LoginScreenと共通)
+  static const String _lastLoggedInUserIdKey = 'lastLoggedInUserId';
 
-  @override
-  void initState() {
-    super.initState();
-    _loadRememberMe(); // 保存された「常にログイン状態にする」設定をロード
-  }
-
-  // 「常にログイン状態にする」設定をロード
-  Future<void> _loadRememberMe() async {
-    final prefs = await SharedPreferences.getInstance();
-    setState(() {
-      _rememberMe = prefs.getBool(_rememberMeKey) ?? true; // デフォルトはtrue
-    });
-  }
-
-  // 「常にログイン状態にする」設定を保存
-  Future<void> _saveRememberMe(bool value) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_rememberMeKey, value);
-  }
-
-  // ログイン処理
-  Future<void> _login() async {
+  // ユーザー登録処理
+  Future<void> _register() async {
     if (_formKey.currentState!.validate()) {
       setState(() {
         _isLoading = true;
       });
 
       try {
-        // setPersistence() はネイティブアプリではデフォルトで永続化されるため不要
-        // await FirebaseAuth.instance.setPersistence(
-        //   _rememberMe ? Persistence.LOCAL : Persistence.SESSION,
-        // );
-
-        final UserCredential userCredential = await FirebaseAuth.instance.signInWithEmailAndPassword(
+        final UserCredential userCredential = await FirebaseAuth.instance.createUserWithEmailAndPassword(
           email: _emailController.text.trim(),
           password: _passwordController.text.trim(),
         );
 
-        // ログイン成功時にユーザーIDをSharedPreferencesに保存
+        // 登録成功と同時にログイン状態になるので、ユーザーIDをSharedPreferencesに保存
         if (userCredential.user != null) {
           final prefs = await SharedPreferences.getInstance();
           await prefs.setString(_lastLoggedInUserIdKey, userCredential.user!.uid);
-          print('ログインしたユーザーIDをSharedPreferencesに保存しました: ${userCredential.user!.uid}');
+          print('新規登録したユーザーIDをSharedPreferencesに保存しました: ${userCredential.user!.uid}');
         }
 
-        // ログイン成功
+        // 登録成功
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('ログインしました！')),
+          const SnackBar(content: Text('ユーザー登録が完了しました！')),
         );
 
-        // ログイン成功後、TopScreenへ遷移（現在の画面を置き換える）
+        // 登録成功後、TopScreenへ遷移（現在の画面を置き換える）
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(builder: (context) => const TopScreen()),
         );
       } on FirebaseAuthException catch (e) {
-        String message = 'ログインに失敗しました。';
-        if (e.code == 'user-not-found') {
-          message = 'ユーザーが見つかりません。';
-        } else if (e.code == 'wrong-password') {
-          message = 'パスワードが間違っています。';
+        String message = 'ユーザー登録に失敗しました。';
+        if (e.code == 'weak-password') {
+          message = 'パスワードが弱すぎます。より強力なパスワードを設定してください。';
+        } else if (e.code == 'email-already-in-use') {
+          message = 'このメールアドレスは既に使用されています。';
         } else if (e.code == 'invalid-email') {
           message = 'メールアドレスの形式が正しくありません。';
-        } else if (e.code == 'too-many-requests') {
-          message = '連続したログイン試行によりブロックされています。しばらくしてからお試しください。';
         } else if (e.code == 'network-request-failed') {
           message = 'ネットワークエラーが発生しました。インターネット接続を確認してください。';
         }
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(message)),
         );
-        print('ログインエラー: ${e.code} - ${e.message}');
+        print('登録エラー: ${e.code} - ${e.message}');
       } catch (e) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('予期せぬエラーが発生しました: $e')),
         );
-        print('ログインエラー: $e');
+        print('登録エラー: $e');
       } finally {
         setState(() {
           _isLoading = false;
@@ -113,6 +84,7 @@ class _LoginScreenState extends State<LoginScreen> {
   void dispose() {
     _emailController.dispose();
     _passwordController.dispose();
+    _confirmPasswordController.dispose();
     super.dispose();
   }
 
@@ -120,7 +92,7 @@ class _LoginScreenState extends State<LoginScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('ログイン'),
+        title: const Text('新規ユーザー登録'),
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
@@ -132,20 +104,23 @@ class _LoginScreenState extends State<LoginScreen> {
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     const Text(
-                      'ふじたけアプリへようこそ！',
+                      '新しいアカウントを作成',
                       style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
                     ),
                     const SizedBox(height: 40),
                     TextFormField(
                       controller: _emailController,
                       decoration: const InputDecoration(
-                        labelText: 'メールアドレス (ユーザーID)',
+                        labelText: 'メールアドレス',
                         border: OutlineInputBorder(),
                         prefixIcon: Icon(Icons.email),
                       ),
                       validator: (value) {
                         if (value == null || value.isEmpty) {
                           return 'メールアドレスを入力してください。';
+                        }
+                        if (!value.contains('@')) {
+                          return '有効なメールアドレスを入力してください。';
                         }
                         return null;
                       },
@@ -159,34 +134,41 @@ class _LoginScreenState extends State<LoginScreen> {
                         border: OutlineInputBorder(),
                         prefixIcon: Icon(Icons.lock),
                       ),
-                      obscureText: true, // パスワードを非表示にする
+                      obscureText: true,
                       validator: (value) {
                         if (value == null || value.isEmpty) {
                           return 'パスワードを入力してください。';
+                        }
+                        if (value.length < 6) {
+                          return 'パスワードは6文字以上である必要があります。';
                         }
                         return null;
                       },
                     ),
                     const SizedBox(height: 16),
-                    Row(
-                      children: [
-                        Checkbox(
-                          value: _rememberMe,
-                          onChanged: (bool? newValue) {
-                            setState(() {
-                              _rememberMe = newValue ?? false;
-                            });
-                            _saveRememberMe(_rememberMe); // 設定を保存
-                          },
-                        ),
-                        const Text('常にログイン状態にする'),
-                      ],
+                    TextFormField(
+                      controller: _confirmPasswordController,
+                      decoration: const InputDecoration(
+                        labelText: 'パスワード（確認）',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.lock),
+                      ),
+                      obscureText: true,
+                      validator: (value) {
+                        if (value == null || value.isEmpty) {
+                          return 'パスワードを再入力してください。';
+                        }
+                        if (value != _passwordController.text) {
+                          return 'パスワードが一致しません。';
+                        }
+                        return null;
+                      },
                     ),
                     const SizedBox(height: 32),
                     ElevatedButton(
-                      onPressed: _login,
+                      onPressed: _register,
                       style: ElevatedButton.styleFrom(
-                        minimumSize: const Size.fromHeight(50), // ボタンを大きくする
+                        minimumSize: const Size.fromHeight(50),
                         backgroundColor: Theme.of(context).primaryColor,
                         foregroundColor: Colors.white,
                         shape: RoundedRectangleBorder(
@@ -194,19 +176,15 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                       ),
                       child: const Text(
-                        'ログイン',
+                        '登録',
                         style: TextStyle(fontSize: 18),
                       ),
                     ),
-                    // 新規登録の誘導を有効化
                     TextButton(
                       onPressed: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(builder: (context) => const RegistrationScreen()),
-                        );
+                        Navigator.pop(context); // ログイン画面に戻る
                       },
-                      child: const Text('アカウントをお持ちでない場合（新規登録）'),
+                      child: const Text('すでにアカウントをお持ちの場合（ログイン）'),
                     ),
                   ],
                 ),

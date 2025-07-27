@@ -7,9 +7,9 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/favorite_website_model.dart';
+import '../models/user_profile_model.dart'; // UserProfileモデルをインポート
 
 class FirestoreService {
-  // FirebaseAuthのインスタンスを直接取得
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseFirestore _db = FirebaseFirestore.instance;
   final FirebaseStorage _storage = FirebaseStorage.instance;
@@ -52,7 +52,62 @@ class FirestoreService {
   }
 
   // =========================================================================
-  // お気に入りサイト関連 (Favorite Websites)
+  // ユーザープロフィール関連 (User Profiles) - 既存
+  // =========================================================================
+
+  CollectionReference<UserProfile> get _userProfilesCollection {
+    return _db
+        .collection('artifacts')
+        .doc(_appId)
+        .collection('public') // 共通データのためpublic
+        .collection('data')
+        .doc('userProfiles') // userProfilesコレクションのドキュメントを特定
+        .collection('profiles') // サブコレクションに各ユーザーのプロフィールを保存
+        .withConverter<UserProfile>(
+          fromFirestore: (snapshot, _) => UserProfile.fromFirestore(snapshot),
+          toFirestore: (profile, _) => profile.toFirestore(),
+        );
+  }
+
+  Future<void> saveUserProfile(UserProfile profile) async {
+    await _userProfilesCollection.doc(profile.id).set(profile);
+  }
+
+  Future<UserProfile?> getUserProfile(String userId) async {
+    final doc = await _userProfilesCollection.doc(userId).get();
+    if (doc.exists) {
+      return doc.data();
+    }
+    return null;
+  }
+
+  Stream<UserProfile?> getCurrentUserProfileStream() {
+    final currentUid = _auth.currentUser?.uid;
+    if (currentUid == null) {
+      return Stream.value(null);
+    }
+    return _userProfilesCollection.doc(currentUid).snapshots().map((snapshot) {
+      if (snapshot.exists) {
+        return snapshot.data();
+      }
+      return null;
+    });
+  }
+
+  Future<String> uploadProfileImage(String filePath, String userId) async {
+    try {
+      final ref = _storage.ref().child('profile_images/$userId/profile_icon.png');
+      final uploadTask = await ref.putFile(File(filePath));
+      final imageUrl = await uploadTask.ref.getDownloadURL();
+      return imageUrl;
+    } catch (e) {
+      print('Error uploading profile image: $e');
+      rethrow;
+    }
+  }
+
+  // =========================================================================
+  // お気に入りサイト関連 (Favorite Websites) - 既存
   // =========================================================================
 
   CollectionReference<FavoriteWebsite> get _favoriteWebsitesCollection {
@@ -121,4 +176,8 @@ class FirestoreService {
       print('Error deleting image: $e');
     }
   }
+
+  // =========================================================================
+  // 他の機能（TODOなど）もここに続く
+  // =========================================================================
 }

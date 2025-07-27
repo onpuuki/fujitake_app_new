@@ -1,10 +1,11 @@
 // lib/services/firestore_service.dart
 
-import 'dart:io'; // <--- この行をファイルの先頭に移動
+import 'dart:io';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
+import 'package:shared_preferences/shared_preferences.dart'; // shared_preferencesをインポート
 import '../models/favorite_website_model.dart'; // FavoriteWebsiteモデルをインポート
 
 class FirestoreService {
@@ -12,16 +13,46 @@ class FirestoreService {
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseStorage _storage = FirebaseStorage.instance;
 
-  // アプリIDを取得（Canvas環境で提供されるグローバル変数を使用）
+  // アプリIDを取得（FirebaseプロジェクトIDを直接指定）
   String get _appId {
-    // __app_id が定義されていない場合は 'default-app-id' を使用
-    return const String.fromEnvironment('APP_ID', defaultValue: 'default-app-id');
+    return 'fujitake-sumaho'; // ★ここをあなたのFirebaseプロジェクトIDに置き換えてください★
   }
 
+  // 永続化されたユーザーIDを保存するキー
+  static const String _userIdKey = 'cached_user_id';
+
   // 現在のユーザーIDを取得
+  // アプリ起動時に一度だけ設定され、以降は永続化されたIDを使用する
+  String? _cachedUserId; // 内部でキャッシュする
+
+  // 初期化メソッド
+  // アプリ起動時に一度だけ呼び出す
+  Future<void> initializeUserId() async {
+    final prefs = await SharedPreferences.getInstance();
+    _cachedUserId = prefs.getString(_userIdKey);
+
+    // キャッシュされたIDがない、または現在のFirebaseユーザーIDと異なる場合
+    if (_cachedUserId == null || _cachedUserId != _auth.currentUser?.uid) {
+      // Firebaseから新しいUIDを取得
+      String newUid = _auth.currentUser?.uid ?? 'anonymous_user_${DateTime.now().millisecondsSinceEpoch}';
+      
+      // 新しいUIDをキャッシュし、永続化
+      _cachedUserId = newUid;
+      await prefs.setString(_userIdKey, newUid);
+      print('FirestoreService: User ID initialized/updated to: $_cachedUserId');
+    } else {
+      print('FirestoreService: Using cached User ID: $_cachedUserId');
+    }
+  }
+
+  // FirestoreServiceのインスタンスが利用するユーザーID
   String get _userId {
-    // 認証済みユーザーがいればそのUID、いなければランダムなUUIDを使用
-    return _auth.currentUser?.uid ?? 'anonymous_user'; // 匿名ユーザーの場合の代替ID
+    if (_cachedUserId == null) {
+      // initializeUserIdが呼び出されていない場合のフォールバック（通常は発生しないはず）
+      print('Warning: _cachedUserId is null. Falling back to currentAuthUser or random.');
+      return _auth.currentUser?.uid ?? 'fallback_anonymous_user_${DateTime.now().millisecondsSinceEpoch}';
+    }
+    return _cachedUserId!;
   }
 
   // =========================================================================
@@ -34,7 +65,7 @@ class FirestoreService {
         .collection('artifacts')
         .doc(_appId)
         .collection('users')
-        .doc(_userId)
+        .doc(_userId) // 永続化された_userIdを使用
         .collection('favoriteWebsites')
         .withConverter<FavoriteWebsite>(
           fromFirestore: (snapshot, _) => FavoriteWebsite.fromFirestore(snapshot),
@@ -68,7 +99,7 @@ class FirestoreService {
   // 画像をFirebase Storageにアップロード
   Future<String> uploadImage(String filePath, String fileName) async {
     try {
-      final ref = _storage.ref().child('favorite_website_images/$_userId/$fileName');
+      final ref = _storage.ref().child('favorite_website_images/$_userId/$fileName'); // 永続化された_userIdを使用
       final uploadTask = await ref.putFile(File(filePath));
       final imageUrl = await uploadTask.ref.getDownloadURL();
       return imageUrl;

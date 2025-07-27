@@ -50,6 +50,9 @@ dependencies:
   html: ^0.15.4 # HTML解析用
   # --- ここまで追加 ---
 
+  # ★追加するパッケージ★
+  shared_preferences: ^2.2.2 # ユーザーIDの永続化用
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

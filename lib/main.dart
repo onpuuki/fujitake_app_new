@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart'; // Firestoreが必要な場合
+// import 'package:cloud_firestore/cloud_firestore.dart'; // FirestoreはFirestoreService経由で使うため、ここでは不要
 import 'firebase_options.dart';
 import 'package:fujitake_app_new/screens/top_screen.dart'; // TopScreenへの正しいパス
+import 'package:fujitake_app_new/services/firestore_service.dart'; // FirestoreServiceをインポート
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized(); // FlutterがFirebaseを使用する準備ができたことを保証
@@ -22,6 +23,10 @@ void main() async {
     } else {
       print("Already signed in. User ID: ${FirebaseAuth.instance.currentUser?.uid}");
     }
+
+    // Firebase認証が完了した後、FirestoreServiceのユーザーIDを初期化する
+    final firestoreService = FirestoreService();
+    await firestoreService.initializeUserId(); // ★追加★
 
   } catch (e) {
     // Firebase初期化または認証に失敗した場合のログ出力とエラー表示

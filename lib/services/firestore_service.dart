@@ -5,52 +5,48 @@ import 'dart:io';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
-import 'package:shared_preferences/shared_preferences.dart'; // shared_preferencesをインポート
-import '../models/favorite_website_model.dart'; // FavoriteWebsiteモデルをインポート
+import 'package:shared_preferences/shared_preferences.dart';
+import '../models/favorite_website_model.dart';
 
 class FirestoreService {
-  final FirebaseFirestore _db = FirebaseFirestore.instance;
+  // FirebaseAuthのインスタンスを直接取得
   final FirebaseAuth _auth = FirebaseAuth.instance;
+  final FirebaseFirestore _db = FirebaseFirestore.instance;
   final FirebaseStorage _storage = FirebaseStorage.instance;
 
-  // アプリIDを取得（FirebaseプロジェクトIDを直接指定）
   String get _appId {
-    return 'fujitake-sumaho'; // ★ここをあなたのFirebaseプロジェクトIDに置き換えてください★
+    return 'fujitake-sumaho';
   }
 
-  // 永続化されたユーザーIDを保存するキー
-  static const String _userIdKey = 'cached_user_id';
+  static const String _lastLoggedInUserIdKey = 'lastLoggedInUserId';
 
-  // 現在のユーザーIDを取得
-  // アプリ起動時に一度だけ設定され、以降は永続化されたIDを使用する
-  String? _cachedUserId; // 内部でキャッシュする
+  String? _cachedUserId; 
 
-  // 初期化メソッド
-  // アプリ起動時に一度だけ呼び出す
   Future<void> initializeUserId() async {
     final prefs = await SharedPreferences.getInstance();
-    _cachedUserId = prefs.getString(_userIdKey);
+    String? storedUid = prefs.getString(_lastLoggedInUserIdKey);
 
-    // キャッシュされたIDがない、または現在のFirebaseユーザーIDと異なる場合
-    if (_cachedUserId == null || _cachedUserId != _auth.currentUser?.uid) {
-      // Firebaseから新しいUIDを取得
-      String newUid = _auth.currentUser?.uid ?? 'anonymous_user_${DateTime.now().millisecondsSinceEpoch}';
-      
-      // 新しいUIDをキャッシュし、永続化
-      _cachedUserId = newUid;
-      await prefs.setString(_userIdKey, newUid);
-      print('FirestoreService: User ID initialized/updated to: $_cachedUserId');
+    String? firebaseUid = _auth.currentUser?.uid;
+
+    String effectiveUid;
+    if (firebaseUid != null && firebaseUid.isNotEmpty) {
+      effectiveUid = firebaseUid;
+      print('FirestoreService: Using Firebase current user UID: $effectiveUid');
+    } else if (storedUid != null && storedUid.isNotEmpty) {
+      effectiveUid = storedUid;
+      print('FirestoreService: Using SharedPreferences cached UID: $effectiveUid');
     } else {
-      print('FirestoreService: Using cached User ID: $_cachedUserId');
+      effectiveUid = '';
+      print('FirestoreService: No user logged in or cached.');
     }
+    
+    _cachedUserId = effectiveUid;
   }
 
-  // FirestoreServiceのインスタンスが利用するユーザーID
   String get _userId {
     if (_cachedUserId == null) {
-      // initializeUserIdが呼び出されていない場合のフォールバック（通常は発生しないはず）
-      print('Warning: _cachedUserId is null. Falling back to currentAuthUser or random.');
-      return _auth.currentUser?.uid ?? 'fallback_anonymous_user_${DateTime.now().millisecondsSinceEpoch}';
+      print('Warning: _cachedUserId is null. Falling back to currentAuthUser.');
+      return _auth.currentUser?.uid ?? '';
     }
     return _cachedUserId!;
   }
@@ -59,13 +55,15 @@ class FirestoreService {
   // お気に入りサイト関連 (Favorite Websites)
   // =========================================================================
 
-  // お気に入りサイトのコレクション参照を取得
   CollectionReference<FavoriteWebsite> get _favoriteWebsitesCollection {
+    if (_userId.isEmpty) {
+      throw Exception("ユーザーがログインしていません。お気に入りサイトにアクセスできません。");
+    }
     return _db
         .collection('artifacts')
         .doc(_appId)
         .collection('users')
-        .doc(_userId) // 永続化された_userIdを使用
+        .doc(_userId)
         .collection('favoriteWebsites')
         .withConverter<FavoriteWebsite>(
           fromFirestore: (snapshot, _) => FavoriteWebsite.fromFirestore(snapshot),
@@ -73,54 +71,54 @@ class FirestoreService {
         );
   }
 
-  // お気に入りサイトを追加・更新
   Future<void> saveFavoriteWebsite(FavoriteWebsite website) async {
+    if (_userId.isEmpty) {
+      throw Exception("ユーザーがログインしていません。サイトを保存できません。");
+    }
     if (website.id == null) {
-      // 新規追加
       await _favoriteWebsitesCollection.add(website);
     } else {
-      // 更新
       await _favoriteWebsitesCollection.doc(website.id).set(website);
     }
   }
 
-  // お気に入りサイトを削除
   Future<void> deleteFavoriteWebsite(String websiteId) async {
+    if (_userId.isEmpty) {
+      throw Exception("ユーザーがログインしていません。サイトを削除できません。");
+    }
     await _favoriteWebsitesCollection.doc(websiteId).delete();
   }
 
-  // お気に入りサイトをストリームで取得（リアルタイム更新）
   Stream<List<FavoriteWebsite>> getFavoriteWebsites() {
+    if (_userId.isEmpty) {
+      return Stream.value([]);
+    }
     return _favoriteWebsitesCollection.snapshots().map((snapshot) {
       return snapshot.docs.map((doc) => doc.data()).toList();
     });
   }
 
-  // 画像をFirebase Storageにアップロード
   Future<String> uploadImage(String filePath, String fileName) async {
+    if (_userId.isEmpty) {
+      throw Exception("ユーザーがログインしていません。画像をアップロードできません。");
+    }
     try {
-      final ref = _storage.ref().child('favorite_website_images/$_userId/$fileName'); // 永続化された_userIdを使用
+      final ref = _storage.ref().child('favorite_website_images/$_userId/$fileName');
       final uploadTask = await ref.putFile(File(filePath));
       final imageUrl = await uploadTask.ref.getDownloadURL();
       return imageUrl;
     } catch (e) {
       print('Error uploading image: $e');
-      rethrow; // エラーを再スローして呼び出し元で処理できるようにする
+      rethrow;
     }
   }
 
-  // Firebase Storageから画像を削除
   Future<void> deleteImage(String imageUrl) async {
     try {
       final ref = _storage.refFromURL(imageUrl);
       await ref.delete();
     } catch (e) {
       print('Error deleting image: $e');
-      // 画像が存在しない場合など、エラーを無視しても良い場合がある
     }
   }
-
-  // =========================================================================
-  // 他の機能（TODOなど）もここに続く
-  // =========================================================================
 }

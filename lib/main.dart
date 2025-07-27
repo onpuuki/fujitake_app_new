@@ -1,37 +1,72 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-// import 'package:cloud_firestore/cloud_firestore.dart'; // FirestoreはFirestoreService経由で使うため、ここでは不要
-import 'firebase_options.dart';
-import 'package:fujitake_app_new/screens/top_screen.dart'; // TopScreenへの正しいパス
-import 'package:fujitake_app_new/services/firestore_service.dart'; // FirestoreServiceをインポート
+import 'package:shared_preferences/shared_preferences.dart';
+// import 'firebase_options.dart'; // DefaultFirebaseOptionsは使用しないためコメントアウト
+import 'package:fujitake_app_new/screens/top_screen.dart';
+import 'package:fujitake_app_new/screens/login_screen.dart';
+import 'package:fujitake_app_new/services/firestore_service.dart';
+
+// json.decode を使用するためにインポートが必要
+import 'dart:convert'; // ★この行をファイルの先頭に移動しました★
+
+
+// Firebase設定をCanvas環境から取得
+// __firebase_config が提供されない場合のデフォルト値（開発用）
+// このエラーを回避するため、APIキーを直接指定します
+const String _firebaseConfigString = String.fromEnvironment(
+  'FIREBASE_CONFIG',
+  defaultValue: '{}', // デフォルトは空のJSON文字列
+);
 
 void main() async {
-  WidgetsFlutterBinding.ensureInitialized(); // FlutterがFirebaseを使用する準備ができたことを保証
+  WidgetsFlutterBinding.ensureInitialized();
 
   try {
+    // Canvas環境からFirebase設定をパース
+    final Map<String, dynamic> firebaseConfig =
+        Map<String, dynamic>.from(json.decode(_firebaseConfigString));
+
+    // ★重要★ FirebaseプロジェクトのAPIキー、App ID、Project IDをここに直接ハードコードしてください
+    // Firebaseコンソールの「プロジェクトの設定」->「全般」タブで確認できます
+    const String firebaseApiKey = 'AIzaSyBgAG7G22KAdK-Ba0OdAJIo1VPH6fGI'; // あなたのAPIキー
+    const String firebaseAppId = '1:1072509148760:android:670e5b70d30f3674ca1db5'; // あなたのApp ID (Android)
+    const String firebaseMessagingSenderId = '1072509148760'; // あなたのMessaging Sender ID
+    const String firebaseProjectId = 'fujitake-sumaho'; // あなたのProject ID
+
+
+    // Firebaseアプリを初期化
+    // FirebaseOptionsのすべての必須プロパティを明示的に指定し、DefaultFirebaseOptionsに依存しないようにする
     await Firebase.initializeApp(
-      options: DefaultFirebaseOptions.currentPlatform,
+      options: const FirebaseOptions( // const キーワードを追加してコンパイル時定数にする
+        apiKey: firebaseApiKey,
+        appId: firebaseAppId,
+        messagingSenderId: firebaseMessagingSenderId,
+        projectId: firebaseProjectId,
+        // 以下はnull許容型なので、明示的にnullを設定
+        authDomain: null, // Canvas環境ではnullで問題ないことが多い
+        databaseURL: null,
+        storageBucket: null,
+        measurementId: null,
+      ),
     );
     print('Firebase initialized successfully.');
 
-    // 匿名認証でログイン（userIdを取得するため）
-    // すでにログイン済みの場合は既存のユーザーを使用
-    if (FirebaseAuth.instance.currentUser == null) {
-      await FirebaseAuth.instance.signInAnonymously();
-      print("Signed in anonymously. User ID: ${FirebaseAuth.instance.currentUser?.uid}");
-    } else {
-      print("Already signed in. User ID: ${FirebaseAuth.instance.currentUser?.uid}");
-    }
+    // ログイン状態の永続化設定を読み込み、Firebase Authenticationに適用
+    final prefs = await SharedPreferences.getInstance();
+    final bool rememberMe = prefs.getBool('rememberMe') ?? true; // デフォルトはtrue
+    await FirebaseAuth.instance.setPersistence(
+      rememberMe ? Persistence.LOCAL : Persistence.SESSION, // NONEはセッション永続化なし
+    );
+    print('Firebase Authentication persistence set to: ${rememberMe ? "LOCAL" : "SESSION"}');
 
-    // Firebase認証が完了した後、FirestoreServiceのユーザーIDを初期化する
+
+    // FirestoreServiceのユーザーIDを初期化する
     final firestoreService = FirestoreService();
-    await firestoreService.initializeUserId(); // ★追加★
+    await firestoreService.initializeUserId(); 
 
   } catch (e) {
-    // Firebase初期化または認証に失敗した場合のログ出力とエラー表示
     print('Firebase initialization or authentication failed: $e');
-    // エラーが発生した場合でもアプリがクラッシュしないように、エラーメッセージを表示する画面を表示
     runApp(
       MaterialApp(
         home: Scaffold(
@@ -42,10 +77,9 @@ void main() async {
         ),
       ),
     );
-    return; // エラー時はここで処理を終了し、アプリの起動を停止
+    return;
   }
 
-  // Firebaseの初期化と認証が成功した場合のみMyAppを実行
   runApp(const MyApp());
 }
 
@@ -59,7 +93,23 @@ class MyApp extends StatelessWidget {
       theme: ThemeData(
         primarySwatch: Colors.blue,
       ),
-      home: const TopScreen(), // アプリのホーム画面としてTopScreenを表示
+      home: StreamBuilder<User?>(
+        stream: FirebaseAuth.instance.authStateChanges(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Scaffold(
+              body: Center(child: CircularProgressIndicator()),
+            );
+          }
+          if (snapshot.hasData) {
+            print('User is logged in: ${snapshot.data!.uid}');
+            return const TopScreen();
+          } else {
+            print('User is not logged in.');
+            return const LoginScreen();
+          }
+        },
+      ),
     );
   }
 }

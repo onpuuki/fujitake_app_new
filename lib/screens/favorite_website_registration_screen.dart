@@ -60,7 +60,7 @@ class _FavoriteWebsiteRegistrationScreenState extends State<FavoriteWebsiteRegis
     });
 
     // 初期起動時のテキスト共有
-    ReceiveSharingIntent.getInitialText().then((String? value) { // get InitialText() -> getInitialText()
+    ReceiveSharingIntent.getInitialText().then((String? value) {
       if (value != null) {
         setState(() {
           _urlController.text = value;
@@ -91,13 +91,6 @@ class _FavoriteWebsiteRegistrationScreenState extends State<FavoriteWebsiteRegis
     if (pickedFile != null) {
       final croppedFile = await ImageCropper().cropImage(
         sourcePath: pickedFile.path,
-        // aspectRatioPresets: [ // この引数は新しいバージョンでは不要
-        //   CropAspectRatioPreset.square,
-        //   CropAspectRatioPreset.ratio3x2,
-        //   CropAspectRatioPreset.original,
-        //   CropAspectRatioPreset.ratio4x3,
-        //   CropAspectRatioPreset.ratio16x9
-        // ],
         uiSettings: [
           AndroidUiSettings(
             toolbarTitle: '画像をトリミング',
@@ -105,7 +98,7 @@ class _FavoriteWebsiteRegistrationScreenState extends State<FavoriteWebsiteRegis
             toolbarWidgetColor: Colors.white,
             initAspectRatio: CropAspectRatioPreset.original,
             lockAspectRatio: false,
-            aspectRatioPresets: [ // AndroidUiSettings の中に移動
+            aspectRatioPresets: [
               CropAspectRatioPreset.square,
               CropAspectRatioPreset.ratio3x2,
               CropAspectRatioPreset.original,
@@ -115,7 +108,7 @@ class _FavoriteWebsiteRegistrationScreenState extends State<FavoriteWebsiteRegis
           ),
           IOSUiSettings(
             title: '画像をトリミング',
-            aspectRatioPresets: [ // IOSUiSettings の中に移動
+            aspectRatioPresets: [
               CropAspectRatioPreset.square,
               CropAspectRatioPreset.ratio3x2,
               CropAspectRatioPreset.original,
@@ -176,10 +169,13 @@ class _FavoriteWebsiteRegistrationScreenState extends State<FavoriteWebsiteRegis
         imageUrl = null;
       }
 
+      // サイト名が空の場合、「無題」を設定
+      final String siteTitle = _titleController.text.isEmpty ? '無題' : _titleController.text;
+
       final website = FavoriteWebsite(
         id: widget.websiteToEdit?.id, // 編集の場合はIDを渡す
         url: _urlController.text,
-        title: _titleController.text,
+        title: siteTitle, // 修正されたサイト名を適用
         memo: _memoController.text,
         imageUrl: imageUrl,
         timestamp: widget.websiteToEdit?.timestamp ?? Timestamp.now(), // 編集の場合は既存のタイムスタンプを使用
@@ -251,15 +247,16 @@ class _FavoriteWebsiteRegistrationScreenState extends State<FavoriteWebsiteRegis
                     TextFormField(
                       controller: _titleController,
                       decoration: const InputDecoration(
-                        labelText: 'サイト名',
+                        labelText: 'サイト名 (任意)', // ラベルを「任意」に変更
                         border: OutlineInputBorder(),
                       ),
-                      validator: (value) {
-                        if (value == null || value.isEmpty) {
-                          return 'サイト名を入力してください';
-                        }
-                        return null;
-                      },
+                      // サイト名は必須ではなくなったため、validatorを削除または修正
+                      // validator: (value) {
+                      //   if (value == null || value.isEmpty) {
+                      //     return 'サイト名を入力してください';
+                      //   }
+                      //   return null;
+                      // },
                     ),
                     const SizedBox(height: 16),
                     TextFormField(

@@ -2,11 +2,11 @@
 
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:shared_preferences/shared_preferences.dart'; // ★追加★ SharedPreferencesをインポート
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:fujitake_app_new/screens/login_screen.dart';
 import 'package:fujitake_app_new/screens/user_profile_screen.dart';
 import 'package:fujitake_app_new/services/firestore_service.dart';
-import 'package:fujitake_app_new/models/user_profile_model.dart'; // UserProfileモデル
+import 'package:fujitake_app_new/models/user_profile_model.dart';
 
 class UserMenuButton extends StatefulWidget {
   const UserMenuButton({super.key});
@@ -18,10 +18,12 @@ class UserMenuButton extends StatefulWidget {
 class _UserMenuButtonState extends State<UserMenuButton> {
   final FirestoreService _firestoreService = FirestoreService();
   UserProfile? _userProfile;
+  User? _currentUser; // 現在のFirebaseユーザー
 
   @override
   void initState() {
     super.initState();
+    _currentUser = FirebaseAuth.instance.currentUser;
     // 現在のユーザープロフィールをリアルタイムで購読
     _firestoreService.getCurrentUserProfileStream().listen((profile) {
       if (mounted) {
@@ -59,6 +61,13 @@ class _UserMenuButtonState extends State<UserMenuButton> {
 
   // デバッグモード切り替え処理
   Future<void> _toggleDebugMode() async {
+    if (_currentUser == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('ログインしていません。')),
+      );
+      return;
+    }
+
     // パスワード入力ダイアログを表示
     String? enteredPassword = await showDialog<String>(
       context: context,
@@ -90,15 +99,20 @@ class _UserMenuButtonState extends State<UserMenuButton> {
     );
 
     if (enteredPassword == _debugPassword) {
-      // 正しいパスワードの場合、お父さん機能の表示状態を切り替える
-      final prefs = await SharedPreferences.getInstance(); // ★修正★ SharedPreferencesのインスタンスを正しく取得
-      bool isFatherModeEnabled = prefs.getBool('isFatherModeEnabled') ?? false;
-      await prefs.setBool('isFatherModeEnabled', !isFatherModeEnabled);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('デバッグモードが${!isFatherModeEnabled ? '有効' : '無効'}になりました。')),
-      );
-      // UIを更新するために、TopScreenを再構築する必要がある
-      // Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => const TopScreen())); // 画面全体をリロード
+      // 正しいパスワードの場合、ユーザープロフィールのデバッグモード状態を更新
+      try {
+        bool currentStatus = _userProfile?.isFatherModeEnabled ?? false;
+        await _firestoreService.updateFatherModeStatus(_currentUser!.uid, !currentStatus);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('デバッグモードが${!currentStatus ? '有効' : '無効'}になりました。')),
+        );
+        // UIはStreamBuilderで自動更新されるため、ここでは特別なナビゲーションは不要
+      } catch (e) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('デバッグモードの更新に失敗しました: $e')),
+        );
+        print('デバッグモード更新エラー: $e');
+      }
     } else if (enteredPassword != null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('パスワードが違います。')),

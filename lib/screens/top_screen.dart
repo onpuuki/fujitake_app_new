@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart'; // Userクラスのため
 import 'package:fujitake_app_new/screens/father_screen.dart';
 import 'package:fujitake_app_new/screens/mother_screen.dart';
 import 'package:fujitake_app_new/screens/shared_screen.dart';
 import 'package:fujitake_app_new/widgets/user_menu_button.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:fujitake_app_new/services/firestore_service.dart';
+import 'package:fujitake_app_new/models/user_profile_model.dart';
+import 'package:fujitake_app_new/screens/user_profile_screen.dart'; // ★追加★ UserProfileScreenをインポート
 
 class TopScreen extends StatefulWidget {
   const TopScreen({super.key});
@@ -13,116 +16,108 @@ class TopScreen extends StatefulWidget {
 }
 
 class _TopScreenState extends State<TopScreen> {
-  bool _isFatherModeEnabled = false;
-
-  // SharedPreferencesのリスナーを保持するための変数
-  late SharedPreferences _prefs;
-  // VoidCallback? _prefsListener; // addListenerを削除するため不要
+  final FirestoreService _firestoreService = FirestoreService();
+  User? _currentUser;
 
   @override
   void initState() {
     super.initState();
-    _loadFatherModeStatus();
+    _currentUser = FirebaseAuth.instance.currentUser;
+    _checkAndPromptUserProfile();
   }
 
-  @override
-  void dispose() {
-    // ウィジェットが破棄されるときにリスナーを解除
-    // _prefsListener?.call(); // addListenerを削除するため不要
-    super.dispose();
-  }
-
-  // デバッグモードの状態をロードし、リスナーを設定
-  Future<void> _loadFatherModeStatus() async {
-    _prefs = await SharedPreferences.getInstance(); // インスタンスを取得
-    setState(() {
-      _isFatherModeEnabled = _prefs.getBool('isFatherModeEnabled') ?? false;
-    });
-
-    // ★修正★ addListenerを削除しました。
-    // デバッグモードの変更は、UserMenuButtonからNavigator.pushReplacementでTopScreenを再構築することで反映されます。
-    // _prefsListener = () {
-    //   _updateFatherModeStatus();
-    // };
-    // _prefs.addListener(_prefsListener!);
-  }
-
-  // SharedPreferencesの変更を検知して状態を更新 (addListener削除に伴い、直接呼び出す必要はなくなるが、メソッド自体は残す)
-  void _updateFatherModeStatus() {
-    if (mounted) {
-      setState(() {
-        _isFatherModeEnabled = _prefs.getBool('isFatherModeEnabled') ?? false;
+  Future<void> _checkAndPromptUserProfile() async {
+    if (_currentUser == null) return;
+    final userProfile = await _firestoreService.getUserProfile(_currentUser!.uid);
+    if (userProfile == null || userProfile.username == '名無しさん') {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('ユーザー名とアイコンを設定してください！')),
+        );
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (context) => const UserProfileScreen(isRegistration: true)),
+        );
       });
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('ふじたけアプリ'),
-        actions: [
-          const Padding(
-            padding: EdgeInsets.only(right: 8.0),
-            child: UserMenuButton(),
+    return StreamBuilder<UserProfile?>(
+      stream: _firestoreService.getCurrentUserProfileStream(),
+      builder: (context, snapshot) {
+        bool isFatherModeEnabled = snapshot.data?.isFatherModeEnabled ?? false;
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Scaffold(
+            body: Center(child: CircularProgressIndicator()),
+          );
+        }
+
+        return Scaffold(
+          appBar: AppBar(
+            title: const Text('ふじたけアプリ'),
+            actions: [
+              const Padding(
+                padding: EdgeInsets.only(right: 8.0),
+                child: UserMenuButton(),
+              ),
+            ],
           ),
-        ],
-      ),
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            // お父さん機能ボタン（デバッグモードで制御）
-            if (_isFatherModeEnabled)
-              ElevatedButton(
-                onPressed: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (context) => const FatherScreen()),
-                  );
-                },
-                style: ElevatedButton.styleFrom(
-                  minimumSize: const Size(200, 60),
-                  textStyle: const TextStyle(fontSize: 20),
+          body: Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                if (isFatherModeEnabled)
+                  ElevatedButton(
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (context) => const FatherScreen()),
+                      );
+                    },
+                    style: ElevatedButton.styleFrom(
+                      minimumSize: const Size(200, 60),
+                      textStyle: const TextStyle(fontSize: 20),
+                    ),
+                    child: const Text('お父さん機能'),
+                  ),
+                if (isFatherModeEnabled)
+                  const SizedBox(height: 20),
+
+                ElevatedButton(
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => const MotherScreen()),
+                    );
+                  },
+                  style: ElevatedButton.styleFrom(
+                    minimumSize: const Size(200, 60),
+                    textStyle: const TextStyle(fontSize: 20),
+                  ),
+                  child: const Text('お母さん機能'),
                 ),
-                child: const Text('お父さん機能'),
-              ),
-            if (_isFatherModeEnabled)
-              const SizedBox(height: 20),
+                const SizedBox(height: 20),
 
-            // お母さん機能ボタン
-            ElevatedButton(
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => const MotherScreen()),
-                );
-              },
-              style: ElevatedButton.styleFrom(
-                minimumSize: const Size(200, 60),
-                textStyle: const TextStyle(fontSize: 20),
-              ),
-              child: const Text('お母さん機能'),
+                ElevatedButton(
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => const SharedScreen()),
+                    );
+                  },
+                  style: ElevatedButton.styleFrom(
+                    minimumSize: const Size(200, 60),
+                    textStyle: const TextStyle(fontSize: 20),
+                  ),
+                  child: const Text('共通機能'),
+                ),
+              ],
             ),
-            const SizedBox(height: 20),
-
-            // 共通機能ボタン
-            ElevatedButton(
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => const SharedScreen()),
-                );
-              },
-              style: ElevatedButton.styleFrom(
-                minimumSize: const Size(200, 60),
-                textStyle: const TextStyle(fontSize: 20),
-              ),
-              child: const Text('共通機能'),
-            ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 }

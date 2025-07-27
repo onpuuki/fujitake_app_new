@@ -60,10 +60,8 @@ class FirestoreService {
         .collection('artifacts')
         .doc(_appId)
         .collection('public') // 共通データのためpublic
-        .doc('data') // ★修正★ .doc('data') を追加
-        .collection('userProfiles') // userProfilesコレクションのドキュメントを特定
-        .doc('profiles') // ★修正★ .doc('profiles') を追加
-        .collection('profiles') // サブコレクションに各ユーザーのプロフィールを保存
+        .doc('data')
+        .collection('userProfiles') // userProfilesコレクションの直下にユーザーIDのドキュメントが来るようにパスを調整
         .withConverter<UserProfile>(
           fromFirestore: (snapshot, _) => UserProfile.fromFirestore(snapshot),
           toFirestore: (profile, _) => profile.toFirestore(),
@@ -93,6 +91,18 @@ class FirestoreService {
       }
       return null;
     });
+  }
+
+  // ★追加または確認★ ユーザーのデバッグモード状態を更新する
+  Future<void> updateFatherModeStatus(String userId, bool status) async {
+    try {
+      await _userProfilesCollection.doc(userId).update({
+        'isFatherModeEnabled': status,
+      });
+    } catch (e) {
+      print('Failed to update father mode status for user $userId: $e');
+      rethrow;
+    }
   }
 
   Future<String> uploadProfileImage(String filePath, String userId) async {

@@ -2,6 +2,11 @@
 このプロジェクトは、**「昼休み駆動開発」のコンセプトに基づき、AIツール（OpenHands, Cursor, OpenAI）を最大限に活用して開発されるスマートフォンアプリ「ふじたけ」**です。主な目的は、思いついたアイデアを機能として持たせて、一家で利用するためのものです。お父さんだけ利用するお父さん機能、お母さんだけ利用するお母さん機能、全員が利用する共有機能があります。作成した機能はその部分だけ抜き出して個別にアプリ化しサイトで販売することも視野にいれています。
 
 機能一覧 (Feature List)
+認証機能 (Authentication)
+メールアドレスとパスワードによる新規登録とログイン機能。
+
+ユーザープロフィール (UserProfileScreen)
+ユーザー名やプロフィール画像などの情報を設定・編集。
 トップ画面 (TopScreen)
 アプリの主要機能への入り口。
 「お父さん機能」「お母さん機能」「共通機能」への遷移ボタン。
@@ -108,6 +113,11 @@ receive_sharing_intent (共有データ受け取り - 現在一時的に無効�
 AIツール (開発支援): OpenHands, Cursor, OpenAI
 
 データベース設計 (Data Structure)
+artifacts/{appId}/public/data/userProfiles (ユーザープロフィール)
+id (string): ユーザーID
+name (string): ユーザー名
+email (string): メールアドレス
+profileImageUrl (string, nullable): プロフィール画像のURL
 artifacts/{appId}/users/{userId}/fatherTodos (お父さん個人のTODO)
 text (string): TODO内容
 

@@ -6,25 +6,63 @@
 // tree, read text, and verify that the values of widget properties are correct.
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-
-import 'package:fujitake_app_new/main.dart';
+import 'package:fujitake_app_new/screens/prompt_copy_screen.dart';
+import 'package:fujitake_app_new/services/firestore_service.dart';
+import 'package:fujitake_app_new/models/prompt_model.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:mockito/mockito.dart';
+import 'mocks.mocks.dart';
 
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
-    await tester.pumpWidget(const MyApp());
+  late MockFirestoreService mockFirestoreService;
 
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
+  setUp(() {
+    mockFirestoreService = MockFirestoreService();
+  });
 
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
+  testWidgets('PromptCopyScreen widget test', (WidgetTester tester) async {
+    // ダミーのプロンプトデータを作成
+    final dummyPrompts = [
+      Prompt(id: '1', text: 'Test Prompt 1', tags: ['tag1'], timestamp: Timestamp.now()),
+      Prompt(id: '2', text: 'Test Prompt 2', tags: ['tag2'], timestamp: Timestamp.now()),
+    ];
+
+    // モックのFirestoreServiceがダミーデータを返すように設定
+    when(mockFirestoreService.getPrompts()).thenAnswer((_) => Stream.value(dummyPrompts));
+
+    // テスト対象のウィジェットをビルド
+    await tester.pumpWidget(
+      MaterialApp(
+        home: PromptCopyScreen(firestoreService: mockFirestoreService),
+      ),
+    );
+
+    // 初期状態ではローディングインジケーターが表示されることを確認
+    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+
+    // すべての非同期処理が完了するのを待つ
+    await tester.pumpAndSettle();
+
+    // ローディングインジケーターが消え、プロンプトが表示されることを確認
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+    expect(find.text('Test Prompt 1'), findsOneWidget);
+    expect(find.text('Test Prompt 2'), findsOneWidget);
+
+    // 1つ目のプロンプトをタップ
+    await tester.tap(find.text('Test Prompt 1'));
     await tester.pump();
 
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+    // SnackBarが表示されることを確認
+    expect(find.text('プロンプトをコピーしました'), findsOneWidget);
+
+    // 2つ目のプロンプトを長押し
+    await tester.longPress(find.text('Test Prompt 2'));
+    await tester.pump();
+
+    // AlertDialogが表示されることを確認
+    expect(find.byType(AlertDialog), findsOneWidget);
+    expect(find.text('プロンプトを編集'), findsOneWidget);
   });
 }

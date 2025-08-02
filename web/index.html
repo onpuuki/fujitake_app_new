@@ -33,6 +33,22 @@
   <link rel="manifest" href="manifest.json">
 </head>
 <body>
+  <script src="https://www.gstatic.com/firebasejs/8.6.1/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.6.1/firebase-auth.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.6.1/firebase-firestore.js"></script>
+  <script>
+    // Your web app's Firebase configuration
+    var firebaseConfig = {
+      apiKey: "AIzaSyAbAg7G23kcAdX-Ba0odAJlo1iVlpH6fGI",
+      authDomain: "fujitake-sumaho.firebaseapp.com",
+      projectId: "fujitake-sumaho",
+      storageBucket: "fujitake-sumaho.appspot.com",
+      messagingSenderId: "1072509148760",
+      appId: "1:1072509148760:web:a8ef3c94d9f8b3c308342d"
+    };
+    // Initialize Firebase
+    firebase.initializeApp(firebaseConfig);
+  </script>
   <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>

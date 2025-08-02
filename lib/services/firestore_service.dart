@@ -7,6 +7,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/favorite_website_model.dart';
+import '../models/prompt_model.dart';
 import '../models/user_profile_model.dart'; // UserProfileモデルをインポート
 
 class FirestoreService {
@@ -20,7 +21,7 @@ class FirestoreService {
 
   static const String _lastLoggedInUserIdKey = 'lastLoggedInUserId';
 
-  String? _cachedUserId; 
+  String? _cachedUserId;
 
   Future<void> initializeUserId() async {
     final prefs = await SharedPreferences.getInstance();
@@ -39,7 +40,7 @@ class FirestoreService {
       effectiveUid = '';
       print('FirestoreService: No user logged in or cached.');
     }
-    
+
     _cachedUserId = effectiveUid;
   }
 
@@ -189,6 +190,37 @@ class FirestoreService {
   }
 
   // =========================================================================
-  // 他の機能（TODOなど）もここに続く
+  // プロンプト関連 (Prompts)
   // =========================================================================
+
+  CollectionReference<Prompt> get _promptsCollection {
+    return _db
+        .collection('artifacts')
+        .doc(_appId)
+        .collection('public')
+        .doc('data')
+        .collection('prompts')
+        .withConverter<Prompt>(
+          fromFirestore: (snapshot, _) => Prompt.fromFirestore(snapshot),
+          toFirestore: (prompt, _) => prompt.toFirestore(),
+        );
+  }
+
+  Future<void> savePrompt(Prompt prompt) async {
+    if (prompt.id == null) {
+      await _promptsCollection.add(prompt);
+    } else {
+      await _promptsCollection.doc(prompt.id).set(prompt);
+    }
+  }
+
+  Future<void> deletePrompt(String promptId) async {
+    await _promptsCollection.doc(promptId).delete();
+  }
+
+  Stream<List<Prompt>> getPrompts() {
+    return _promptsCollection.snapshots().map((snapshot) {
+      return snapshot.docs.map((doc) => doc.data()).toList();
+    });
+  }
 }

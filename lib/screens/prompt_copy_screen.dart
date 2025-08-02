@@ -275,29 +275,103 @@ class _PromptCopyScreenState extends State<PromptCopyScreen> {
                   itemCount: filteredPrompts.length,
                   itemBuilder: (context, index) {
                     final prompt = filteredPrompts[index];
-                    return ListTile(
-                      title: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          if (prompt.imageUrl != null)
-                            GestureDetector(
-                              onTap: () => _showImageDialog(prompt.imageUrl!),
-                              child: Image.network(prompt.imageUrl!, height: 150),
+                    return Card(
+                      margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      child: Padding(
+                        padding: const EdgeInsets.all(12.0),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            if (prompt.imageUrl != null)
+                              GestureDetector(
+                                onTap: () => _showImageDialog(prompt.imageUrl!),
+                                child: Center(
+                                  child: ClipRRect(
+                                    borderRadius: BorderRadius.circular(8.0),
+                                    child: Image.network(
+                                      prompt.imageUrl!,
+                                      height: 150,
+                                      width: double.infinity,
+                                      fit: BoxFit.cover,
+                                      errorBuilder: (context, error, stackTrace) =>
+                                          const SizedBox(
+                                        height: 150,
+                                        child: Center(child: Icon(Icons.broken_image)),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            if (prompt.imageUrl != null) const SizedBox(height: 12),
+                            Text(prompt.text, style: const TextStyle(fontSize: 16.0)),
+                            if (prompt.tags.isNotEmpty) const SizedBox(height: 8),
+                            if (prompt.tags.isNotEmpty)
+                              Wrap(
+                                spacing: 6.0,
+                                runSpacing: 6.0,
+                                children: prompt.tags
+                                    .map((tag) => Chip(
+                                          label: Text(tag),
+                                          padding: const EdgeInsets.symmetric(horizontal: 8.0),
+                                          materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                          labelStyle: const TextStyle(fontSize: 12),
+                                        ))
+                                    .toList(),
+                              ),
+                            const Divider(),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.end,
+                              children: [
+                                IconButton(
+                                  icon: const Icon(Icons.copy, color: Colors.blue),
+                                  tooltip: 'コピー',
+                                  onPressed: () {
+                                    Clipboard.setData(ClipboardData(text: prompt.text));
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(content: Text('プロンプトをコピーしました')),
+                                    );
+                                  },
+                                ),
+                                IconButton(
+                                  icon: const Icon(Icons.edit, color: Colors.green),
+                                  tooltip: '編集',
+                                  onPressed: () => _showAddPromptDialog(prompt: prompt),
+                                ),
+                                IconButton(
+                                  icon: const Icon(Icons.delete, color: Colors.red),
+                                  tooltip: '削除',
+                                  onPressed: () {
+                                    showDialog(
+                                      context: context,
+                                      builder: (context) => AlertDialog(
+                                        title: const Text('削除の確認'),
+                                        content: const Text('このプロンプトを削除しますか？'),
+                                        actions: [
+                                          TextButton(
+                                            onPressed: () => Navigator.pop(context),
+                                            child: const Text('キャンセル'),
+                                          ),
+                                          TextButton(
+                                            onPressed: () async {
+                                              if (prompt.id != null) {
+                                                if (prompt.imageUrl != null) {
+                                                  await _firestoreService.deleteImage(prompt.imageUrl!);
+                                                }
+                                                await _firestoreService.deletePrompt(prompt.id!);
+                                              }
+                                              Navigator.pop(context);
+                                            },
+                                            child: const Text('削除', style: TextStyle(color: Colors.red)),
+                                          ),
+                                        ],
+                                      ),
+                                    );
+                                  },
+                                ),
+                              ],
                             ),
-                          Text(prompt.text),
-                        ],
-                      ),
-                      subtitle: Text(prompt.tags.join(', ')),
-                      onTap: () {
-                        Clipboard.setData(ClipboardData(text: prompt.text));
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('プロンプトをコピーしました')),
-                        );
-                      },
-                      onLongPress: () => _showAddPromptDialog(prompt: prompt),
-                      trailing: IconButton(
-                        icon: const Icon(Icons.delete),
-                        onPressed: () => _firestoreService.deletePrompt(prompt.id!),
+                          ],
+                        ),
                       ),
                     );
                   },

@@ -30,10 +30,11 @@ void main() async {
     // ★重要★ FirebaseプロジェクトのAPIキー、App ID、Project IDをここに直接ハードコードしてください
     // Firebaseコンソールの「プロジェクトの設定」->「全般」タブで確認できます
     const String firebaseApiKey = 'AIzaSyAbAg7G23kcAdX-Ba0odAJlo1iVlpH6fGI'; // あなたのAPIキー (google-services.jsonから確認)
-    const String firebaseAppId = '1:1072509148760:android:182d09a0b43612ef08342d'; // ★修正★ google-services.jsonのfujitake_app_newのmobilesdk_app_id
+    const String firebaseAppId = '1:1072509148760:android:182d09a0b43612ef08342d'; // google-services.jsonのfujitake_app_newのmobilesdk_app_id
     const String firebaseMessagingSenderId = '1072509148760'; // あなたのMessaging Sender ID
     const String firebaseProjectId = 'fujitake-sumaho'; // あなたのProject ID
-    const String firebaseStorageBucket = 'fujitake-sumaho.appspot.com'; // あなたのStorage Bucket
+    // ★修正★ Storage Bucketにgs://プレフィックスを追加
+    const String firebaseStorageBucket = 'gs://fujitake-sumaho.appspot.com'; // あなたのStorage Bucketにgs://を追加
 
 
     // Firebaseアプリを初期化
@@ -47,21 +48,11 @@ void main() async {
         projectId: firebaseConfig['projectId'] as String? ?? firebaseProjectId, // firebaseConfigから取得、なければハードコード
         authDomain: firebaseConfig['authDomain'] as String?,
         databaseURL: firebaseConfig['databaseURL'] as String?,
-        storageBucket: firebaseConfig['storageBucket'] as String? ?? firebaseStorageBucket, // ★修正★ Storage Bucketをハードコード
+        storageBucket: firebaseConfig['storageBucket'] as String? ?? firebaseStorageBucket, // ★修正★ Storage Bucketをgs://付きで指定
         measurementId: firebaseConfig['measurementId'] as String?,
       ),
     );
     print('Firebase initialized successfully.');
-
-    // ログイン状態の永続化設定を読み込み、Firebase Authenticationに適用
-    // ★setPersistence() はウェブプラットフォームのみでサポートされているため、ネイティブアプリでは削除します。
-    // ネイティブアプリではFirebase Authenticationがデフォルトで認証状態を永続化します。
-    // final prefs = await SharedPreferences.getInstance();
-    // final bool rememberMe = prefs.getBool('rememberMe') ?? true; // デフォルトはtrue
-    // await FirebaseAuth.instance.setPersistence(
-    //   rememberMe ? Persistence.LOCAL : Persistence.SESSION,
-    // );
-    // print('Firebase Authentication persistence set to: ${rememberMe ? "LOCAL" : "SESSION"}');
 
 
     // FirestoreServiceのユーザーIDを初期化する

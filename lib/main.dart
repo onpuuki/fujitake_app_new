@@ -34,7 +34,7 @@ void main() async {
     const String firebaseMessagingSenderId = '1072509148760'; // あなたのMessaging Sender ID
     const String firebaseProjectId = 'fujitake-sumaho'; // あなたのProject ID
     // ★修正★ Storage Bucketにgs://プレフィックスを追加
-    const String firebaseStorageBucket = 'gs://fujitake-sumaho.appspot.com'; // あなたのStorage Bucketにgs://を追加
+    const String firebaseStorageBucket = 'fujitake-sumaho.firebasestorage.app'; // あなたのStorage Bucket
 
 
     // Firebaseアプリを初期化

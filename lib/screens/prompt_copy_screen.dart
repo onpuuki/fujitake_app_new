@@ -7,6 +7,7 @@ import 'dart:io';
 import 'package:image_picker/image_picker.dart';
 import 'package:image_cropper/image_cropper.dart';
 import 'package:uuid/uuid.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 
 class PromptCopyScreen extends StatefulWidget {
   final FirestoreService? firestoreService;
@@ -24,7 +25,7 @@ class _PromptCopyScreenState extends State<PromptCopyScreen> {
   List<String> _selectedTags = [];
   List<String> _allTags = [];
   String? _filterTag;
-  Future<List<String>>? _tagsFuture;
+  
   File? _imageFile;
   String? _existingImageUrl;
 
@@ -32,13 +33,9 @@ class _PromptCopyScreenState extends State<PromptCopyScreen> {
   void initState() {
     super.initState();
     _firestoreService = widget.firestoreService ?? FirestoreService();
-    _tagsFuture = _loadAllTags();
   }
 
-  Future<List<String>> _loadAllTags() async {
-    final prompts = await _firestoreService.getPrompts().first;
-    return prompts.expand((prompt) => prompt.tags).toSet().toList();
-  }
+  
 
   Future<void> _pickAndCropImage() async {
     final picker = ImagePicker();
@@ -82,6 +79,8 @@ class _PromptCopyScreenState extends State<PromptCopyScreen> {
     _imageFile = null;
     _existingImageUrl = prompt?.imageUrl;
 
+    List<String> localAllTags = List<String>.from(_allTags);
+
     showDialog(
       context: context,
       builder: (context) {
@@ -98,16 +97,29 @@ class _PromptCopyScreenState extends State<PromptCopyScreen> {
                         children: [
                           _imageFile != null
                               ? Image.file(_imageFile!, height: 150)
-                              : Image.network(_existingImageUrl!, height: 150),
+                              : CachedNetworkImage(
+                                  imageUrl: _existingImageUrl!,
+                                  height: 150,
+                                  placeholder: (context, url) => const Center(child: CircularProgressIndicator()),
+                                  errorWidget: (context, url, error) => const Icon(Icons.error),
+                                ),
                           TextButton(
-                            onPressed: _removeImage,
+                            onPressed: () {
+                              setState(() {
+                                _imageFile = null;
+                                _existingImageUrl = null;
+                              });
+                            },
                             child: const Text('画像を削除', style: TextStyle(color: Colors.red)),
                           ),
                         ],
                       )
                     else
                       TextButton.icon(
-                        onPressed: _pickAndCropImage,
+                        onPressed: () async {
+                          await _pickAndCropImage();
+                          setState(() {});
+                        },
                         icon: const Icon(Icons.image),
                         label: const Text('画像を添付'),
                       ),
@@ -119,7 +131,7 @@ class _PromptCopyScreenState extends State<PromptCopyScreen> {
                     const SizedBox(height: 16),
                     Wrap(
                       spacing: 8.0,
-                      children: _allTags.map((tag) {
+                      children: localAllTags.map((tag) {
                         return ChoiceChip(
                           label: Text(tag),
                           selected: _selectedTags.contains(tag),
@@ -143,9 +155,9 @@ class _PromptCopyScreenState extends State<PromptCopyScreen> {
                           icon: const Icon(Icons.add),
                           onPressed: () {
                             final newTag = _tagController.text.trim();
-                            if (newTag.isNotEmpty && !_allTags.contains(newTag)) {
+                            if (newTag.isNotEmpty && !localAllTags.contains(newTag)) {
                               setState(() {
-                                _allTags.add(newTag);
+                                localAllTags.add(newTag);
                                 _selectedTags.add(newTag);
                                 _tagController.clear();
                               });
@@ -186,9 +198,7 @@ class _PromptCopyScreenState extends State<PromptCopyScreen> {
                 );
                 await _firestoreService.savePrompt(newPrompt);
                 Navigator.pop(context);
-                setState(() {
-                  _tagsFuture = _loadAllTags();
-                });
+                // No need to call setState here, StreamBuilder will handle the update.
               },
               child: const Text('保存'),
             ),
@@ -204,7 +214,11 @@ class _PromptCopyScreenState extends State<PromptCopyScreen> {
       builder: (context) => Dialog(
         child: GestureDetector(
           onTap: () => Navigator.pop(context),
-          child: Image.network(imageUrl),
+          child: CachedNetworkImage(
+            imageUrl: imageUrl,
+            placeholder: (context, url) => const Center(child: CircularProgressIndicator()),
+            errorWidget: (context, url, error) => const Icon(Icons.error),
+          ),
         ),
       ),
     );
@@ -214,10 +228,10 @@ class _PromptCopyScreenState extends State<PromptCopyScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('プロンプトコピー'),
+        title: const Text('コピペコピー'),
       ),
-      body: FutureBuilder<List<String>>(
-        future: _tagsFuture,
+      body: StreamBuilder<List<Prompt>>(
+        stream: _firestoreService.getPrompts(),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
@@ -225,7 +239,13 @@ class _PromptCopyScreenState extends State<PromptCopyScreen> {
           if (snapshot.hasError) {
             return Center(child: Text('エラー: ${snapshot.error}'));
           }
-          _allTags = snapshot.data ?? [];
+          final prompts = snapshot.data ?? [];
+          _allTags = prompts.expand((p) => p.tags).toSet().toList();
+
+          final filteredPrompts = _filterTag == null
+              ? prompts
+              : prompts.where((p) => p.tags.contains(_filterTag)).toList();
+
           return Column(
             children: [
               Wrap(
@@ -254,24 +274,7 @@ class _PromptCopyScreenState extends State<PromptCopyScreen> {
                 ],
               ),
               Expanded(
-                child: StreamBuilder<List<Prompt>>(
-              stream: _firestoreService.getPrompts(),
-              builder: (context, snapshot) {
-                if (snapshot.hasError) {
-                  return Center(child: Text('エラー: ${snapshot.error}'));
-                }
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-                final prompts = snapshot.data ?? [];
-                if (_allTags.isEmpty && prompts.isNotEmpty) {
-                  _loadAllTags();
-                }
-                final filteredPrompts = _filterTag == null
-                    ? prompts
-                    : prompts.where((p) => p.tags.contains(_filterTag)).toList();
-
-                return ListView.builder(
+                child: ListView.builder(
                   itemCount: filteredPrompts.length,
                   itemBuilder: (context, index) {
                     final prompt = filteredPrompts[index];
@@ -288,40 +291,36 @@ class _PromptCopyScreenState extends State<PromptCopyScreen> {
                                 child: Center(
                                   child: ClipRRect(
                                     borderRadius: BorderRadius.circular(8.0),
-                                    child: Image.network(
-                                      prompt.imageUrl!,
+                                    child: CachedNetworkImage(
+                                      imageUrl: prompt.imageUrl!,
                                       height: 150,
                                       width: double.infinity,
                                       fit: BoxFit.cover,
-                                      errorBuilder: (context, error, stackTrace) =>
-                                          const SizedBox(
-                                        height: 150,
-                                        child: Center(child: Icon(Icons.broken_image)),
-                                      ),
+                                      placeholder: (context, url) => const Center(child: CircularProgressIndicator()),
+                                      errorWidget: (context, url, error) => const Icon(Icons.broken_image),
                                     ),
                                   ),
                                 ),
                               ),
                             if (prompt.imageUrl != null) const SizedBox(height: 12),
                             Text(prompt.text, style: const TextStyle(fontSize: 16.0)),
-                            if (prompt.tags.isNotEmpty) const SizedBox(height: 8),
-                            if (prompt.tags.isNotEmpty)
-                              Wrap(
-                                spacing: 6.0,
-                                runSpacing: 6.0,
-                                children: prompt.tags
-                                    .map((tag) => Chip(
-                                          label: Text(tag),
-                                          padding: const EdgeInsets.symmetric(horizontal: 8.0),
-                                          materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                                          labelStyle: const TextStyle(fontSize: 12),
-                                        ))
-                                    .toList(),
-                              ),
                             const Divider(),
                             Row(
-                              mainAxisAlignment: MainAxisAlignment.end,
                               children: [
+                                Expanded(
+                                  child: Wrap(
+                                    spacing: 6.0,
+                                    runSpacing: 6.0,
+                                    children: prompt.tags
+                                        .map((tag) => Chip(
+                                              label: Text(tag),
+                                              padding: const EdgeInsets.symmetric(horizontal: 8.0),
+                                              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                              labelStyle: const TextStyle(fontSize: 12),
+                                            ))
+                                        .toList(),
+                                  ),
+                                ),
                                 IconButton(
                                   icon: const Icon(Icons.copy, color: Colors.blue),
                                   tooltip: 'コピー',
@@ -375,9 +374,7 @@ class _PromptCopyScreenState extends State<PromptCopyScreen> {
                       ),
                     );
                   },
-                );
-              },
-            ),
+                ),
               ),
             ],
           );

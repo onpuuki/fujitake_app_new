@@ -2,6 +2,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart'; // URL起動のためにインポート
+import 'package:cached_network_image/cached_network_image.dart';
 import '../models/favorite_website_model.dart';
 import '../services/firestore_service.dart';
 import 'favorite_website_registration_screen.dart'; // 登録・編集画面をインポート
@@ -97,15 +98,11 @@ class _FavoriteWebsitesListScreenState extends State<FavoriteWebsitesListScreen>
             onTap: () {
               Navigator.pop(context); // タップで閉じる
             },
-            child: Image.network(
-              imageUrl,
+            child: CachedNetworkImage(
+              imageUrl: imageUrl,
               fit: BoxFit.contain,
-              errorBuilder: (context, error, stackTrace) {
-                return Container(
-                  color: Colors.grey[200],
-                  child: const Center(child: Text('画像読み込みエラー')),
-                );
-              },
+              placeholder: (context, url) => const Center(child: CircularProgressIndicator()),
+              errorWidget: (context, url, error) => const Center(child: Text('画像読み込みエラー')),
             ),
           ),
         );
@@ -231,19 +228,13 @@ class _FavoriteWebsitesListScreenState extends State<FavoriteWebsitesListScreen>
                                   onTap: () => _showImageDialog(website.imageUrl!), // 画像タップで拡大表示
                                   child: ClipRRect(
                                     borderRadius: BorderRadius.circular(8.0),
-                                    child: Image.network(
-                                      website.imageUrl!,
+                                    child: CachedNetworkImage(
+                                      imageUrl: website.imageUrl!,
                                       width: 80,
                                       height: 80,
                                       fit: BoxFit.cover,
-                                      errorBuilder: (context, error, stackTrace) {
-                                        return Container(
-                                          width: 80,
-                                          height: 80,
-                                          color: Colors.grey[200],
-                                          child: const Icon(Icons.broken_image, size: 40),
-                                        );
-                                      },
+                                      placeholder: (context, url) => const Center(child: CircularProgressIndicator()),
+                                      errorWidget: (context, url, error) => const Icon(Icons.broken_image, size: 40),
                                     ),
                                   ),
                                 )

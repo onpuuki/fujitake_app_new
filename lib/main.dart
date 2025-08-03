@@ -59,6 +59,7 @@ class MyApp extends StatelessWidget {
       title: 'ふじたけアプリ',
       theme: ThemeData(
         primarySwatch: Colors.blue,
+        scaffoldBackgroundColor: Colors.orange[50],
       ),
       home: StreamBuilder<User?>(
         stream: FirebaseAuth.instance.authStateChanges(),

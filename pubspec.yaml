@@ -49,6 +49,7 @@ dependencies:
    # 新しく追加するパッケージ
   http: ^1.2.0 # HTTPリクエスト用
   html: ^0.15.4 # HTML解析用
+  smb_connect: ^0.0.9 # SMB/CIFS
   # --- ここまで追加 ---
 
   # ★追加するパッケージ★

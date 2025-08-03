@@ -45,6 +45,7 @@ dependencies:
   url_launcher: ^6.3.2
   # receive_sharing_intent: ^1.8.1 # 共有機能は一時的に無効化
   image_cropper: ^9.1.0 # ここに最新バージョンを記述
+  cached_network_image: ^3.3.1
    # 新しく追加するパッケージ
   http: ^1.2.0 # HTTPリクエスト用
   html: ^0.15.4 # HTML解析用
@@ -56,6 +57,7 @@ dependencies:
 dev_dependencies:
   flutter_test:
     sdk: flutter
+  flutter_launcher_icons: ^0.13.1
   mockito: ^5.4.4
   build_runner: ^2.4.11
 
@@ -70,6 +72,13 @@ dev_dependencies:
 # following page: https://dart.dev/tools/pub/pubspec
 
 # The following section is specific to Flutter packages.
+flutter_launcher_icons:
+  android: "launcher_icon"
+  ios: true
+  image_path: "assets/icon/icon.png"
+  adaptive_icon_background: "#FFC107"
+  adaptive_icon_foreground: "assets/icon/icon_foreground.png"
+
 flutter:
 
   # The following line ensures that the Material Icons font is

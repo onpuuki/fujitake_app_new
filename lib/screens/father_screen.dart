@@ -3,6 +3,7 @@ import 'package:fujitake_app_new/screens/prompt_copy_screen.dart';
 import 'package:fujitake_app_new/screens/debug_screen.dart';
 import 'package:fujitake_app_new/screens/father_todo_list_screen.dart';
 import 'package:fujitake_app_new/screens/favorite_websites_list_screen.dart'; // インポート
+import 'package:fujitake_app_new/screens/nas_viewer_screen.dart';
 
 class FatherScreen extends StatelessWidget {
   const FatherScreen({super.key});
@@ -83,6 +84,29 @@ class FatherScreen extends StatelessWidget {
                     textStyle: const TextStyle(fontSize: 24),
                   ),
                   child: const Text('コピペコピー'),
+                ),
+              ),
+            ),
+            // NASビュワーボタン
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 10.0),
+              child: SizedBox(
+                width: 280,
+                height: 70,
+                child: ElevatedButton(
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => const NasViewerScreen()),
+                    );
+                  },
+                  style: ElevatedButton.styleFrom(
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    textStyle: const TextStyle(fontSize: 24),
+                  ),
+                  child: const Text('NASビュワー'),
                 ),
               ),
             ),

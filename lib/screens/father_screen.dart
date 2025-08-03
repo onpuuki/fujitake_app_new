@@ -82,7 +82,7 @@ class FatherScreen extends StatelessWidget {
                     ),
                     textStyle: const TextStyle(fontSize: 24),
                   ),
-                  child: const Text('プロンプトコピー'),
+                  child: const Text('コピペコピー'),
                 ),
               ),
             ),

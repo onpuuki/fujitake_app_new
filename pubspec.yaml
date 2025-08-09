@@ -43,7 +43,7 @@ dependencies:
   firebase_storage: ^12.4.9
   share_plus: ^11.0.0
   url_launcher: ^6.3.2
-  # receive_sharing_intent: ^1.8.1 # 共有機能は一時的に無効化
+  receive_sharing_intent: ^1.8.1
   image_cropper: ^9.1.0 # ここに最新バージョンを記述
   cached_network_image: ^3.3.1
    # 新しく追加するパッケージ
@@ -53,6 +53,9 @@ dependencies:
 
   # ★追加するパッケージ★
   shared_preferences: ^2.2.2 # ユーザーIDの永続化用
+  
+  logging: ^1.3.0
+  video_player: ^2.10.0
 
 dev_dependencies:
   flutter_test:

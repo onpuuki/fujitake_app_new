@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../models/nas_server_model.dart';
 import '../services/nas_service.dart';
 import 'nas_server_edit_screen.dart';
+import 'nas_file_browser_screen.dart';
 
 class NasViewerScreen extends StatefulWidget {
   const NasViewerScreen({super.key});
@@ -62,7 +63,12 @@ class _NasViewerScreenState extends State<NasViewerScreen> {
                 title: Text(server.nickname),
                 subtitle: Text('${server.protocol.name.toUpperCase()} - ${server.host}'),
                 onTap: () {
-                  // TODO: Implement file browser screen navigation
+                  Navigator.push(
+  context,
+  MaterialPageRoute(
+    builder: (context) => NasFileBrowserScreen(server: server),
+  ),
+);
                 },
                 trailing: IconButton(
                   icon: const Icon(Icons.edit),

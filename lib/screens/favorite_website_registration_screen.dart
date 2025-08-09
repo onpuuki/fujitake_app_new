@@ -10,8 +10,7 @@ import 'package:http/http.dart' as http; // HTTPリクエスト用
 import 'package:html/parser.dart' as htmlParser; // HTML解析用
 import '../models/favorite_website_model.dart';
 import '../services/firestore_service.dart';
-// import 'package:receive_sharing_intent/receive_sharing_intent.dart'; // 共有機能 - 一時的に無効化
-
+import 'package:receive_sharing_intent/receive_sharing_intent.dart';
 class FavoriteWebsiteRegistrationScreen extends StatefulWidget {
   final FavoriteWebsite? websiteToEdit; // 編集対象のサイト（新規登録の場合はnull）
 
@@ -44,34 +43,34 @@ class _FavoriteWebsiteRegistrationScreenState extends State<FavoriteWebsiteRegis
       _existingImageUrl = widget.websiteToEdit!.imageUrl;
     } else {
       // 新規登録モードの場合、共有インテントを処理 (一時的に無効化)
-      // _handleSharedIntent();
+      _handleSharedIntent();
     }
   }
 
-  // 共有インテントを処理するメソッド (一時的に無効化)
-  /*
+  // 共有インテントを処理するメソッド
   void _handleSharedIntent() async {
-    // テキスト共有のリスナー
-    ReceiveSharingIntent.getTextStream().listen((String value) {
+    // Listen to media sharing coming from outside the app while the app is in the memory.
+    ReceiveSharingIntent.instance.getMediaStream().listen((List<SharedMediaFile> value) {
       setState(() {
-        _urlController.text = value;
-        _titleController.text = _extractTitleFromUrl(value); // URLからタイトルを推測
+        if (value.isNotEmpty) {
+          _urlController.text = value.first.path;
+          _titleController.text = _extractTitleFromUrl(value.first.path); // URLからタイトルを推測
+        }
       });
     }, onError: (err) {
-      print("getLinkStream error: $err");
+      print("getIntentDataStream error: $err");
     });
 
-    // 初期起動時のテキスト共有
-    ReceiveSharingIntent.getInitialText().then((String? value) {
-      if (value != null) {
+    // Get the media sharing coming from outside the app while the app is closed.
+    ReceiveSharingIntent.instance.getInitialMedia().then((List<SharedMediaFile> value) {
+      if (value.isNotEmpty) {
         setState(() {
-          _urlController.text = value;
-          _titleController.text = _extractTitleFromUrl(value);
+          _urlController.text = value.first.path;
+          _titleController.text = _extractTitleFromUrl(value.first.path);
         });
       }
     });
   }
-  */
 
   // URLから簡易的にタイトルを推測するヘルパー関数 (既存)
   String _extractTitleFromUrl(String url) {

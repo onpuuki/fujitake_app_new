@@ -6,16 +6,16 @@ plugins {
 
 android {
     namespace = "com.example.fujitake_app_new"
-    compileSdk = 35
+    compileSdk = 36
     ndkVersion = "27.0.12077973"
 
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_1_8
-        targetCompatibility = JavaVersion.VERSION_1_8
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
 
     kotlinOptions {
-        jvmTarget = "1.8"
+        jvmTarget = "17"
     }
 
     sourceSets {
@@ -30,21 +30,18 @@ android {
         versionName = "1.0"
     }
 
-// ★★★ この正しいコードブロックを追加 ★★★
-compileOptions {
-    sourceCompatibility = JavaVersion.VERSION_1_8
-    targetCompatibility = JavaVersion.VERSION_1_8
-}
-
-kotlinOptions {
-    jvmTarget = "1.8"
-}
-
     buildTypes {
         getByName("release") {
+            isMinifyEnabled = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             signingConfig = signingConfigs.getByName("debug")
         }
     }
 }
 
-dependencies {}
+dependencies {
+    implementation(files("libs/jcifs-ng-2.1.6.jar"))
+    implementation("org.slf4j:slf4j-api:1.7.32")
+    implementation("org.slf4j:slf4j-simple:1.7.32")
+    implementation("org.bouncycastle:bcprov-jdk15on:1.68")
+}

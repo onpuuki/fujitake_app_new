@@ -3,6 +3,8 @@ import 'package:uuid/uuid.dart';
 import '../models/nas_server_model.dart';
 import '../services/nas_service.dart';
 
+import 'package:logging/logging.dart';
+
 class NasServerEditScreen extends StatefulWidget {
   final NasServer? server;
 
@@ -57,6 +59,7 @@ class _NasServerEditScreenState extends State<NasServerEditScreen> {
       Navigator.pop(context, true);
     }
   }
+
 
   @override
   Widget build(BuildContext context) {
@@ -125,6 +128,7 @@ class _NasServerEditScreenState extends State<NasServerEditScreen> {
               obscureText: true,
               onSaved: (value) => _password = value,
             ),
+
           ],
         ),
       ),

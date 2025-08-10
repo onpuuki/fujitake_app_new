@@ -33,7 +33,7 @@ class VideoViewerScreen extends StatefulWidget {
 class _VideoViewerScreenState extends State<VideoViewerScreen> {
   late VideoPlayerController _controller;
   late Future<void> _initializeVideoPlayerFuture;
-  String? _errorMessage;
+  String _log = '';
 
   @override
   void initState() {
@@ -41,36 +41,52 @@ class _VideoViewerScreenState extends State<VideoViewerScreen> {
     _initializeVideoPlayerFuture = _loadVideo();
   }
 
+  void _addLog(String message) {
+    setState(() {
+      _log += '$message\n';
+    });
+  }
+
   Future<void> _loadVideo() async {
+    _addLog('--- Loading video ---');
     try {
+      _addLog('Connecting to SMB server...');
       final smbConnect = await SmbConnect.connectAuth(
         host: widget.host,
-        
-        username: widget.username,
+        username: 'WORKGROUP\\${widget.username}',
         password: widget.password,
-        domain: '', // ドメインは空でOK
+        domain: '',
       );
+      _addLog('Connected to SMB server.');
 
       final smbFilePath = widget.filePath.substring(widget.filePath.indexOf(widget.shareName) + widget.shareName.length);
+      _addLog('SMB file path: $smbFilePath');
       final smbFile = await smbConnect.file('/${widget.shareName}$smbFilePath');
+      _addLog('Got SMB file object.');
+
       final reader = await smbConnect.openRead(smbFile);
+      _addLog('Opened file for reading.');
       final fileBytes = await reader.fold<Uint8List>(Uint8List(0), (previous, element) => Uint8List.fromList([...previous, ...element]));
+      _addLog('Read file bytes.');
       await smbConnect.close();
+      _addLog('Disconnected from SMB server.');
 
       // 一時ファイルに保存
+      _addLog('Saving to temporary file...');
       final directory = await getTemporaryDirectory();
       final tempFilePath = p.join(directory.path, widget.fileName);
       final tempFile = File(tempFilePath);
       await tempFile.writeAsBytes(fileBytes);
+      _addLog('Saved to temporary file: $tempFilePath');
 
       _controller = VideoPlayerController.file(tempFile);
+      _addLog('Initializing video player...');
       await _controller.initialize();
+      _addLog('Video player initialized.');
       setState(() {});
-    } catch (e) {
-      setState(() {
-        _errorMessage = '動画を読み込めませんでした: $e';
-      });
-      print('Error loading video: $e');
+    } catch (e, s) {
+      _addLog('Error loading video: $e');
+      _addLog('Stack trace: $s');
       rethrow;
     }
   }
@@ -91,10 +107,12 @@ class _VideoViewerScreenState extends State<VideoViewerScreen> {
         future: _initializeVideoPlayerFuture,
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
+            return Center(child: CircularProgressIndicator());
           } else if (snapshot.hasError) {
             return Center(
-              child: Text(_errorMessage ?? '動画を読み込めませんでした。'),
+              child: SingleChildScrollView(
+                child: Text('動画を読み込めませんでした:\n$_log'),
+              ),
             );
           } else {
             return Center(

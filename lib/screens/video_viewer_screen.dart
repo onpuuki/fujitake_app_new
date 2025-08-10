@@ -1,33 +1,49 @@
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
+import 'package:flutter_vlc_player/flutter_vlc_player.dart';
 
-class VideoViewerScreen extends StatelessWidget {
+class VideoViewerScreen extends StatefulWidget {
   final String filePath;
   final String fileName;
 
   const VideoViewerScreen({super.key, required this.filePath, required this.fileName});
 
   @override
-  Widget build(BuildContext context) {
-    _launchURL(context);
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(fileName),
-      ),
-      body: Center(
-        child: Text('動画を外部アプリで再生します...'),
-      ),
+  State<VideoViewerScreen> createState() => _VideoViewerScreenState();
+}
+
+class _VideoViewerScreenState extends State<VideoViewerScreen> {
+  late VlcPlayerController _videoPlayerController;
+
+  @override
+  void initState() {
+    super.initState();
+    _videoPlayerController = VlcPlayerController.network(
+      widget.filePath,
+      hwAcc: HwAcc.full,
+      autoPlay: true,
+      options: VlcPlayerOptions(),
     );
   }
 
-  void _launchURL(BuildContext context) async {
-    final uri = Uri.parse(filePath);
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('このファイルを開けませんでした: $filePath')),
-      );
-    }
+  @override
+  void dispose() {
+    _videoPlayerController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(widget.fileName),
+      ),
+      body: Center(
+        child: VlcPlayer(
+          controller: _videoPlayerController,
+          aspectRatio: 16 / 9,
+          placeholder: const Center(child: CircularProgressIndicator()),
+        ),
+      ),
+    );
   }
 }

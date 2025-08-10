@@ -218,7 +218,15 @@ bool _isImageFile(String fileName) {
       Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (context) => ImageViewerScreen(filePath: fullPath, fileName: file.name),
+          builder: (context) => ImageViewerScreen(
+            filePath: fullPath,
+            fileName: file.name,
+            host: widget.server.host,
+            port: widget.server.port,
+            domain: 'WORKGROUP',
+            username: widget.server.username,
+            password: widget.server.password,
+          ),
         ),
       );
     } else if (_isVideoFile(file.name)) {

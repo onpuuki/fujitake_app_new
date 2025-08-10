@@ -1,28 +1,32 @@
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
-import 'package:smb_connect/smb_connect.dart';
-import 'package:path/path.dart' as p;
-import 'dart:io';
-import 'package:path_provider/path_provider.dart';
-import 'dart:typed_data'; // Add this line
+import 'package:flutter/services.dart'; // MethodChannelのために追加
+import 'dart:typed_data'; // Uint8Listのために追加
+import 'dart:convert'; // Base64デコードのために追加
+import 'dart:io'; // Fileのために追加
+import 'package:path_provider/path_provider.dart'; // getTemporaryDirectoryのために追加
+import 'package:path/path.dart' as p; // パス結合のために追加
+import 'package:video_player/video_player.dart'; // VideoPlayerControllerのために追加
 
 class VideoViewerScreen extends StatefulWidget {
-  final String filePath;
+  final String smbUrl; // SMB URLを直接受け取る
   final String fileName;
   final String host;
   final int port;
   final String username;
   final String password;
+  final String domain;
   final String shareName;
 
   const VideoViewerScreen({
     super.key,
-    required this.filePath,
+    required this.smbUrl,
     required this.fileName,
     required this.host,
     required this.port,
     required this.username,
     required this.password,
+    required this.domain,
     required this.shareName,
   });
 
@@ -31,6 +35,7 @@ class VideoViewerScreen extends StatefulWidget {
 }
 
 class _VideoViewerScreenState extends State<VideoViewerScreen> {
+  static const platform = MethodChannel('com.fujitake.nas/smb'); // MethodChannelを定義
   late VideoPlayerController _controller;
   late Future<void> _initializeVideoPlayerFuture;
   String _log = '';
@@ -50,26 +55,27 @@ class _VideoViewerScreenState extends State<VideoViewerScreen> {
   Future<void> _loadVideo() async {
     _addLog('--- Loading video ---');
     try {
-      _addLog('Connecting to SMB server...');
-      final smbConnect = await SmbConnect.connectAuth(
-        host: widget.host,
-        username: 'WORKGROUP\\${widget.username}',
-        password: widget.password,
-        domain: '',
-      );
-      _addLog('Connected to SMB server.');
+      _addLog('Attempting to read SMB file via native code...');
+      _addLog('SMB URL: ${widget.smbUrl}');
+      _addLog('Username: ${widget.username}');
 
-      final smbFilePath = widget.filePath.substring(widget.filePath.indexOf(widget.shareName) + widget.shareName.length);
-      _addLog('SMB file path: $smbFilePath');
-      final smbFile = await smbConnect.file('/${widget.shareName}$smbFilePath');
-      _addLog('Got SMB file object.');
+      final Map<String, dynamic> arguments = {
+        'smbUrl': widget.smbUrl,
+        'host': widget.host,
+        'port': widget.port,
+        'domain': widget.domain,
+        'username': widget.username,
+        'password': widget.password,
+      };
 
-      final reader = await smbConnect.openRead(smbFile);
-      _addLog('Opened file for reading.');
-      final fileBytes = await reader.fold<Uint8List>(Uint8List(0), (previous, element) => Uint8List.fromList([...previous, ...element]));
-      _addLog('Read file bytes.');
-      await smbConnect.close();
-      _addLog('Disconnected from SMB server.');
+      final String? base64Bytes = await platform.invokeMethod('readFile', arguments);
+
+      if (base64Bytes == null || base64Bytes.isEmpty) {
+        throw Exception('Failed to read file: No data received from native.');
+      }
+
+      _addLog('File bytes received from native. Decoding Base64...');
+      final fileBytes = base64Decode(base64Bytes);
 
       // 一時ファイルに保存
       _addLog('Saving to temporary file...');

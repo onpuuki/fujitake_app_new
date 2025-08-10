@@ -9,6 +9,7 @@ class NasServer {
   final NasProtocol protocol;
   final String host;
   final int? port;
+  final int? httpPort; // Add this line for HTTP/HTTPS access
   final String? username;
   final String? password;
   final String? shareName; // For SMB
@@ -19,6 +20,7 @@ class NasServer {
     required this.protocol,
     required this.host,
     this.port,
+    this.httpPort, // Initialize httpPort here
     this.username,
     this.password,
     this.shareName,
@@ -30,6 +32,7 @@ class NasServer {
     NasProtocol? protocol,
     String? host,
     int? port,
+    int? httpPort,
     String? username,
     String? password,
     String? shareName,
@@ -40,6 +43,7 @@ class NasServer {
       protocol: protocol ?? this.protocol,
       host: host ?? this.host,
       port: port ?? this.port,
+      httpPort: httpPort ?? this.httpPort,
       username: username ?? this.username,
       password: password ?? this.password,
       shareName: shareName ?? this.shareName,
@@ -54,6 +58,7 @@ class NasServer {
       'protocol': protocol.name,
       'host': host,
       'port': port,
+      'httpPort': httpPort,
       'username': username,
       'password': password,
       'shareName': shareName,
@@ -67,6 +72,7 @@ class NasServer {
       protocol: NasProtocol.values.firstWhere((e) => e.name == json['protocol']),
       host: json['host'],
       port: json['port'],
+      httpPort: json['httpPort'],
       username: json['username'],
       password: json['password'],
       shareName: json['shareName'],

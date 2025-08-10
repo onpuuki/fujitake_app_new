@@ -218,14 +218,30 @@ bool _isImageFile(String fileName) {
       Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (context) => ImageViewerScreen(filePath: fullPath, fileName: file.name),
+          builder: (context) => ImageViewerScreen(
+            filePath: fullPath,
+            fileName: file.name,
+            host: widget.server.host,
+            port: widget.server.port ?? 445, // SMBのデフォルトポート
+            username: widget.server.username ?? '',
+            password: widget.server.password ?? '',
+            shareName: widget.server.shareName ?? '',
+          ),
         ),
       );
     } else if (_isVideoFile(file.name)) {
       Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (context) => VideoViewerScreen(filePath: fullPath, fileName: file.name),
+          builder: (context) => VideoViewerScreen(
+            filePath: fullPath,
+            fileName: file.name,
+            host: widget.server.host,
+            port: widget.server.port ?? 445, // SMBのデフォルトポート
+            username: widget.server.username ?? '',
+            password: widget.server.password ?? '',
+            shareName: widget.server.shareName ?? '',
+          ),
         ),
       );
     } else {

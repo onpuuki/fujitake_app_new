@@ -212,20 +212,33 @@ bool _isImageFile(String fileName) {
   }
 
   void _openFile(SmbNativeFile file) {
-    final fullPath = 'smb://${widget.server.host}/${widget.server.shareName ?? ''}$_currentPath/${file.name}';
+    final sharePart = widget.server.shareName != null && widget.server.shareName!.isNotEmpty
+        ? '/${widget.server.shareName}'
+        : '';
+    String rawPath = 'smb://${widget.server.host}$sharePart$_currentPath/${file.name}';
+    // パス内の二重スラッシュを正規化
+    final fullPath = rawPath.replaceAll(RegExp(r'/+'), '/');
+
+    final host = widget.server.host;
+    final port = widget.server.port ?? 445;
+    final username = widget.server.username ?? '';
+    final password = widget.server.password ?? '';
+    final shareName = widget.server.shareName ?? '';
+    final domain = 'WORKGROUP'; // NASFileBrowserScreenのlistFilesと同じドメインを使用
 
     if (_isImageFile(file.name)) {
       Navigator.push(
         context,
         MaterialPageRoute(
           builder: (context) => ImageViewerScreen(
-            filePath: fullPath,
+            smbUrl: fullPath, // fullPathをsmbUrlとして渡す
             fileName: file.name,
-            host: widget.server.host,
-            port: widget.server.port ?? 445, // SMBのデフォルトポート
-            username: widget.server.username ?? '',
-            password: widget.server.password ?? '',
-            shareName: widget.server.shareName ?? '',
+            host: host,
+            port: port,
+            username: username,
+            password: password,
+            domain: domain,
+            shareName: shareName,
           ),
         ),
       );
@@ -234,13 +247,14 @@ bool _isImageFile(String fileName) {
         context,
         MaterialPageRoute(
           builder: (context) => VideoViewerScreen(
-            filePath: fullPath,
+            smbUrl: fullPath, // fullPathをsmbUrlとして渡す
             fileName: file.name,
-            host: widget.server.host,
-            port: widget.server.port ?? 445, // SMBのデフォルトポート
-            username: widget.server.username ?? '',
-            password: widget.server.password ?? '',
-            shareName: widget.server.shareName ?? '',
+            host: host,
+            port: port,
+            username: username,
+            password: password,
+            domain: domain,
+            shareName: shareName,
           ),
         ),
       );

@@ -51,8 +51,7 @@ class MainActivity: FlutterActivity() {
                         }
                     }
                 }
-            } else {
-} else if (call.method == "readFile") {
+            } else if (call.method == "readFile") {
                 val smbUrl = call.argument<String>("smbUrl")
                 if (smbUrl == null) {
                     result.error("INVALID_ARGUMENTS", "smbUrl is required.", null)
@@ -78,6 +77,7 @@ class MainActivity: FlutterActivity() {
                         }
                     }
                 }
+            } else {
                 result.notImplemented()
             }
         }
@@ -87,24 +87,6 @@ class MainActivity: FlutterActivity() {
         val smbUrl = if (port != null) {
             "smb://$host:$port/$share$path"
         } else {
-private fun readFileBytes(host: String?, port: Int?, domain: String?, user: String?, pass: String?, smbUrl: String): ByteArray {
-        val prop = Properties()
-        prop.setProperty("jcifs.smb.client.minVersion", "SMB202")
-        prop.setProperty("jcifs.smb.client.maxVersion", "SMB311")
-        prop.setProperty("jcifs.encoding", "UTF-8")
-        val bc = BaseContext(PropertyConfiguration(prop))
-        
-        val auth: CIFSContext = if (user != null && pass != null && user.isNotEmpty()) {
-            val creds = NtlmPasswordAuthentication(bc, domain, user, pass)
-            bc.withCredentials(creds)
-        } else {
-            bc.withGuestCrendentials()
-        }
-
-        val smbFile = SmbFile(smbUrl, auth)
-        val inputStream = smbFile.inputStream
-        return inputStream.readBytes()
-    }
             "smb://$host/$share$path"
         }
 
@@ -136,5 +118,24 @@ private fun readFileBytes(host: String?, port: Int?, domain: String?, user: Stri
                 "lastModified" to it.lastModified()
             )
         }
+    }
+
+    private fun readFileBytes(host: String?, port: Int?, domain: String?, user: String?, pass: String?, smbUrl: String): ByteArray {
+        val prop = Properties()
+        prop.setProperty("jcifs.smb.client.minVersion", "SMB202")
+        prop.setProperty("jcifs.smb.client.maxVersion", "SMB311")
+        prop.setProperty("jcifs.encoding", "UTF-8")
+        val bc = BaseContext(PropertyConfiguration(prop))
+        
+        val auth: CIFSContext = if (user != null && pass != null && user.isNotEmpty()) {
+            val creds = NtlmPasswordAuthentication(bc, domain, user, pass)
+            bc.withCredentials(creds)
+        } else {
+            bc.withGuestCrendentials()
+        }
+
+        val smbFile = SmbFile(smbUrl, auth)
+        val inputStream = smbFile.inputStream
+        return inputStream.readBytes()
     }
 }

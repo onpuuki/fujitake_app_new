@@ -45,3 +45,5 @@ app.*.map.json
 /android/app/release
 /flutter/
 setup_and_build.sh
+commandlinetools-linux-11076708_latest.zip
+google-chrome-stable_current_amd64.deb

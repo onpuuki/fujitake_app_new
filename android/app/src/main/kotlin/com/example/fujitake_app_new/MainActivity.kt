@@ -23,6 +23,7 @@ class MainActivity: FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        Security.addProvider(BouncyCastleProvider())
         
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
             if (call.method == "listFiles") {
@@ -91,9 +92,8 @@ class MainActivity: FlutterActivity() {
         }
 
         val prop = Properties()
-        // NTLMv2認証を強制し、MD4の使用を回避する (一旦コメントアウト)
-        // prop.setProperty("jcifs.smb.client.ntlm.v2", "true")
-        // prop.setProperty("jcifs.smb.client.useNtlm2", "true")
+        prop.setProperty("jcifs.smb.client.ntlm.v2", "true")
+        prop.setProperty("jcifs.smb.client.useNtlm2", "true")
         prop.setProperty("jcifs.smb.client.minVersion", "SMB202")
         prop.setProperty("jcifs.smb.client.maxVersion", "SMB311")
         prop.setProperty("jcifs.encoding", "UTF-8")
@@ -122,6 +122,8 @@ class MainActivity: FlutterActivity() {
 
     private fun readFileBytes(host: String?, port: Int?, domain: String?, user: String?, pass: String?, smbUrl: String): ByteArray {
         val prop = Properties()
+        prop.setProperty("jcifs.smb.client.ntlm.v2", "true")
+        prop.setProperty("jcifs.smb.client.useNtlm2", "true")
         prop.setProperty("jcifs.smb.client.minVersion", "SMB202")
         prop.setProperty("jcifs.smb.client.maxVersion", "SMB311")
         prop.setProperty("jcifs.encoding", "UTF-8")

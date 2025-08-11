@@ -57,6 +57,7 @@ dependencies:
   logging: ^1.3.0
   video_player: ^2.10.0
   flutter_vlc_player: ^7.3.0
+  chewie: ^1.12.1
   
 
 dev_dependencies:

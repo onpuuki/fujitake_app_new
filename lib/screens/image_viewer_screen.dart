@@ -1,29 +1,25 @@
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
-import 'package:cached_network_image/cached_network_image.dart';
-import 'package:flutter/services.dart'; // MethodChannelのために追加
-import 'dart:typed_data'; // Uint8Listのために追加
-import 'dart:convert'; // Base64デコードのために追加
+import 'package:flutter/services.dart';
 
 class ImageViewerScreen extends StatefulWidget {
-  final String smbUrl; // SMB URLを直接受け取る
+  final String smbUrl;
   final String fileName;
   final String host;
-  final int port;
+  final int? port;
   final String username;
   final String password;
   final String domain;
-  final String shareName;
 
   const ImageViewerScreen({
     super.key,
     required this.smbUrl,
     required this.fileName,
     required this.host,
-    required this.port,
+    this.port,
     required this.username,
     required this.password,
     required this.domain,
-    required this.shareName,
   });
 
   @override
@@ -31,7 +27,7 @@ class ImageViewerScreen extends StatefulWidget {
 }
 
 class _ImageViewerScreenState extends State<ImageViewerScreen> {
-  static const platform = MethodChannel('com.fujitake.nas/smb'); // MethodChannelを定義
+  static const platform = MethodChannel('com.fujitake.nas/smb');
   late Future<Uint8List> _imageData;
   String _log = '';
 
@@ -42,9 +38,13 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
   }
 
   void _addLog(String message) {
-    setState(() {
-      _log += '$message\n';
-    });
+    // Use print for debugging as setState is not ideal here
+    print(message);
+    if (mounted) {
+      setState(() {
+        _log += '$message\n';
+      });
+    }
   }
 
   Future<Uint8List> _loadImage() async {
@@ -63,18 +63,19 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
         'password': widget.password,
       };
 
-      final String? base64Bytes = await platform.invokeMethod('readFile', arguments);
+      // The native side returns ByteArray, which is Uint8List in Dart.
+      final Uint8List? bytes = await platform.invokeMethod<Uint8List>('readFile', arguments);
 
-      if (base64Bytes == null || base64Bytes.isEmpty) {
-        throw Exception('Failed to read file: No data received from native.');
+      if (bytes == null || bytes.isEmpty) {
+        throw Exception('Failed to read file: No data received from native code.');
       }
 
-      _addLog('File bytes received from native. Decoding Base64...');
-      return base64Decode(base64Bytes);
+      _addLog('File bytes received from native.');
+      return bytes;
     } catch (e, s) {
       _addLog('Error loading image: $e');
       _addLog('Stack trace: $s');
-      rethrow;
+      rethrow; // Rethrow to let FutureBuilder handle the error state.
     }
   }
 
@@ -88,11 +89,12 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
         future: _imageData,
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
-            return Center(child: CircularProgressIndicator());
+            return const Center(child: CircularProgressIndicator());
           } else if (snapshot.hasError) {
             return Center(
               child: SingleChildScrollView(
-                child: Text('画像を読み込めませんでした:\n$_log'),
+                padding: const EdgeInsets.all(16.0),
+                child: Text('画像を読み込めませんでした:\n$_log\n\nError: ${snapshot.error}'),
               ),
             );
           } else if (snapshot.hasData) {

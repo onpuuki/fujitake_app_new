@@ -1,6 +1,8 @@
 package com.example.fujitake_app_new
 
 import io.flutter.embedding.android.FlutterActivity
+import fi.iki.elonen.NanoHTTPD
+import java.io.InputStream
 
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -20,10 +22,14 @@ import org.bouncycastle.jce.provider.BouncyCastleProvider
 
 class MainActivity: FlutterActivity() {
     private val CHANNEL = "com.fujitake.nas/smb"
+    private var streamingServer: StreamingServer? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         Security.addProvider(BouncyCastleProvider())
+
+        streamingServer = StreamingServer()
+        streamingServer?.start()
         
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
             if (call.method == "listFiles") {
@@ -52,14 +58,13 @@ class MainActivity: FlutterActivity() {
                         }
                     }
                 }
-            } else if (call.method == "readFile") {
+            } else if (call.method == "startStreaming") {
                 val smbUrl = call.argument<String>("smbUrl")
                 if (smbUrl == null) {
                     result.error("INVALID_ARGUMENTS", "smbUrl is required.", null)
                     return@setMethodCallHandler
                 }
 
-                // 認証情報はlistFilesと同じものを再利用する想定
                 val host = call.argument<String>("host")
                 val port = call.argument<Int>("port")
                 val domain = call.argument<String>("domain")
@@ -68,9 +73,9 @@ class MainActivity: FlutterActivity() {
 
                 CoroutineScope(Dispatchers.IO).launch {
                     try {
-                        val fileBytes = readFileBytes(host, port, domain, username, password, smbUrl)
+                        val streamingUrl = startStreaming(host, port, domain, username, password, smbUrl)
                         withContext(Dispatchers.Main) {
-                            result.success(fileBytes)
+                            result.success(streamingUrl)
                         }
                     } catch (e: Exception) {
                         withContext(Dispatchers.Main) {
@@ -120,7 +125,7 @@ class MainActivity: FlutterActivity() {
         }
     }
 
-    private fun readFileBytes(host: String?, port: Int?, domain: String?, user: String?, pass: String?, smbUrl: String): ByteArray {
+    private fun startStreaming(host: String?, port: Int?, domain: String?, user: String?, pass: String?, smbUrl: String): String {
         val prop = Properties()
         prop.setProperty("jcifs.smb.client.ntlm.v2", "true")
         prop.setProperty("jcifs.smb.client.useNtlm2", "true")
@@ -137,7 +142,21 @@ class MainActivity: FlutterActivity() {
         }
 
         val smbFile = SmbFile(smbUrl, auth)
-        val inputStream = smbFile.inputStream
-        return inputStream.readBytes()
+        return streamingServer!!.serveSmbFile(smbFile)
+    }
+
+    inner class StreamingServer : NanoHTTPD(8080) {
+        private var smbFile: SmbFile? = null
+
+        fun serveSmbFile(smbFile: SmbFile): String {
+            this.smbFile = smbFile
+            return "http://127.0.0.1:8080"
+        }
+
+        override fun serve(session: IHTTPSession): Response {
+            val smbInputStream = smbFile!!.inputStream
+            val mimeType = "video/mp4"
+            return newChunkedResponse(Response.Status.OK, mimeType, smbInputStream)
+        }
     }
 }

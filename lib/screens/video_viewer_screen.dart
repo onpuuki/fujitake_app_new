@@ -49,8 +49,8 @@ class _VideoViewerScreenState extends State<VideoViewerScreen> {
   Future<void> _initializePlayer() async {
     _addLog('--- Loading video ---');
     try {
-      final tempFile = await _loadVideoFile();
-      _videoPlayerController = VideoPlayerController.file(tempFile);
+      final streamingUrl = await _getStreamingUrl();
+      _videoPlayerController = VideoPlayerController.network(streamingUrl);
       await _videoPlayerController.initialize();
       _chewieController = ChewieController(
         videoPlayerController: _videoPlayerController,
@@ -70,8 +70,8 @@ class _VideoViewerScreenState extends State<VideoViewerScreen> {
     }
   }
 
-  Future<File> _loadVideoFile() async {
-    _addLog('Attempting to read SMB file via native code...');
+  Future<String> _getStreamingUrl() async {
+    _addLog('Attempting to get streaming URL via native code...');
     try {
       final Map<String, dynamic> arguments = {
         'smbUrl': widget.smbUrl,
@@ -81,19 +81,14 @@ class _VideoViewerScreenState extends State<VideoViewerScreen> {
         'username': widget.username,
         'password': widget.password,
       };
-      final Uint8List? fileBytes = await platform.invokeMethod<Uint8List>('readFile', arguments);
-      if (fileBytes == null || fileBytes.isEmpty) {
-        throw Exception('Failed to read file: No data received from native.');
+      final String? streamingUrl = await platform.invokeMethod('startStreaming', arguments);
+      if (streamingUrl == null || streamingUrl.isEmpty) {
+        throw Exception('Failed to get streaming URL from native.');
       }
-      _addLog('File bytes received from native.');
-      final directory = await getTemporaryDirectory();
-      final tempFilePath = p.join(directory.path, widget.fileName);
-      final tempFile = File(tempFilePath);
-      await tempFile.writeAsBytes(fileBytes);
-      _addLog('Saved to temporary file: $tempFilePath');
-      return tempFile;
+      _addLog('Streaming URL received: $streamingUrl');
+      return streamingUrl;
     } catch (e, s) {
-      _addLog('Error loading video file: $e');
+      _addLog('Error getting streaming URL: $e');
       _addLog('Stack trace: $s');
       rethrow;
     }

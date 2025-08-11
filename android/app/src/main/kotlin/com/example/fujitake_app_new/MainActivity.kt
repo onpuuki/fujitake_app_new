@@ -183,9 +183,49 @@ class MainActivity: FlutterActivity() {
         }
 
         override fun serve(session: IHTTPSession): Response {
-            val smbInputStream = smbFile!!.inputStream
-            val mimeType = "video/mp4"
-            return newChunkedResponse(Response.Status.OK, mimeType, smbInputStream)
+            val rangeHeader = session.headers["range"]
+            var startByte: Long = 0
+            var endByte: Long = -1
+            val totalLength = smbFile!!.length()
+            val mimeType = "video/mp4" // または smbFile.contentType などから取得
+
+            if (rangeHeader != null) {
+                val rangeValue = rangeHeader.replace("bytes=", "")
+                val parts = rangeValue.split("-")
+                startByte = parts[0].toLong()
+                if (parts.size > 1 && parts[1].isNotEmpty()) {
+                    endByte = parts[1].toLong()
+                } else {
+                    endByte = totalLength - 1
+                }
+            }
+
+            val inputStream: InputStream = smbFile!!.inputStream
+            if (startByte > 0) {
+                inputStream.skip(startByte)
+            }
+
+            val response: Response
+            if (rangeHeader != null && startByte <= endByte) {
+                val contentLength = endByte - startByte + 1
+                response = newFixedLengthResponse(
+                    Response.Status.PARTIAL_CONTENT,
+                    mimeType,
+                    inputStream,
+                    contentLength
+                )
+                response.addHeader("Content-Range", "bytes $startByte-$endByte/$totalLength")
+            } else {
+                response = newFixedLengthResponse(
+                    Response.Status.OK,
+                    mimeType,
+                    inputStream,
+                    totalLength
+                )
+            }
+
+            response.addHeader("Accept-Ranges", "bytes")
+            return response
         }
     }
 }

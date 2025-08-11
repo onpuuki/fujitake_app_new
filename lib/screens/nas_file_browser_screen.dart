@@ -211,17 +211,8 @@ bool _isImageFile(String fileName) {
   }
 
   void _openFile(SmbNativeFile file) {
-    // URLエンコードを適用して特殊文字を処理
-    final encodedShareName = Uri.encodeComponent(widget.server.shareName ?? '');
-    final encodedCurrentPath = _currentPath.split('/').map(Uri.encodeComponent).join('/');
-    final encodedFileName = Uri.encodeComponent(file.name);
-
-    // パスを結合
-    String resourcePath = [encodedShareName, encodedCurrentPath, encodedFileName]
-        .where((s) => s.isNotEmpty)
-        .join('/');
-    
-    final smbUrl = 'smb://${widget.server.host}/$resourcePath';
+    String tempPath = 'smb://${widget.server.host}/${widget.server.shareName ?? ''}/$_currentPath/${file.name}';
+    final smbUrl = tempPath.replaceAll(RegExp(r'(?<!smb:)/{2,}'), '/');
 
     if (_isImageFile(file.name)) {
       Navigator.push(
@@ -242,7 +233,16 @@ bool _isImageFile(String fileName) {
       Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (context) => VideoViewerScreen(filePath: smbUrl, fileName: file.name),
+          builder: (context) => VideoViewerScreen(
+            smbUrl: smbUrl,
+            fileName: file.name,
+            host: widget.server.host,
+            port: widget.server.port ?? 445,
+            username: widget.server.username ?? '',
+            password: widget.server.password ?? '',
+            domain: 'WORKGROUP',
+            shareName: widget.server.shareName ?? '',
+          ),
         ),
       );
     } else {

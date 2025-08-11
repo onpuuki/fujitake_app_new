@@ -1,15 +1,14 @@
+import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:video_player/video_player.dart';
-import 'package:flutter/services.dart'; // MethodChannelのために追加
-import 'dart:typed_data'; // Uint8Listのために追加
-import 'dart:convert'; // Base64デコードのために追加
-import 'dart:io'; // Fileのために追加
-import 'package:path_provider/path_provider.dart'; // getTemporaryDirectoryのために追加
-import 'package:path/path.dart' as p; // パス結合のために追加
-import 'package:video_player/video_player.dart'; // VideoPlayerControllerのために追加
+import 'package:chewie/chewie.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:path/path.dart' as p;
 
 class VideoViewerScreen extends StatefulWidget {
-  final String smbUrl; // SMB URLを直接受け取る
+  final String smbUrl;
   final String fileName;
   final String host;
   final int port;
@@ -35,30 +34,45 @@ class VideoViewerScreen extends StatefulWidget {
 }
 
 class _VideoViewerScreenState extends State<VideoViewerScreen> {
-  static const platform = MethodChannel('com.fujitake.nas/smb'); // MethodChannelを定義
-  late VideoPlayerController _controller;
-  late Future<void> _initializeVideoPlayerFuture;
+  static const platform = MethodChannel('com.fujitake.nas/smb');
+  late VideoPlayerController _videoPlayerController;
+  ChewieController? _chewieController;
   String _log = '';
+  bool _isLoading = true;
 
   @override
   void initState() {
     super.initState();
-    _initializeVideoPlayerFuture = _loadVideo();
+    _initializePlayer();
   }
 
-  void _addLog(String message) {
-    setState(() {
-      _log += '$message\n';
-    });
-  }
-
-  Future<void> _loadVideo() async {
+  Future<void> _initializePlayer() async {
     _addLog('--- Loading video ---');
     try {
-      _addLog('Attempting to read SMB file via native code...');
-      _addLog('SMB URL: ${widget.smbUrl}');
-      _addLog('Username: ${widget.username}');
+      final tempFile = await _loadVideoFile();
+      _videoPlayerController = VideoPlayerController.file(tempFile);
+      await _videoPlayerController.initialize();
+      _chewieController = ChewieController(
+        videoPlayerController: _videoPlayerController,
+        autoPlay: true,
+        looping: false,
+      );
+      _addLog('Video player initialized.');
+    } catch (e, s) {
+      _addLog('Error initializing video player: $e');
+      _addLog('Stack trace: $s');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
+  }
 
+  Future<File> _loadVideoFile() async {
+    _addLog('Attempting to read SMB file via native code...');
+    try {
       final Map<String, dynamic> arguments = {
         'smbUrl': widget.smbUrl,
         'host': widget.host,
@@ -67,85 +81,70 @@ class _VideoViewerScreenState extends State<VideoViewerScreen> {
         'username': widget.username,
         'password': widget.password,
       };
-
-      final String? base64Bytes = await platform.invokeMethod('readFile', arguments);
-
-      if (base64Bytes == null || base64Bytes.isEmpty) {
+      final Uint8List? fileBytes = await platform.invokeMethod<Uint8List>('readFile', arguments);
+      if (fileBytes == null || fileBytes.isEmpty) {
         throw Exception('Failed to read file: No data received from native.');
       }
-
-      _addLog('File bytes received from native. Decoding Base64...');
-      final fileBytes = base64Decode(base64Bytes);
-
-      // 一時ファイルに保存
-      _addLog('Saving to temporary file...');
+      _addLog('File bytes received from native.');
       final directory = await getTemporaryDirectory();
       final tempFilePath = p.join(directory.path, widget.fileName);
       final tempFile = File(tempFilePath);
       await tempFile.writeAsBytes(fileBytes);
       _addLog('Saved to temporary file: $tempFilePath');
-
-      _controller = VideoPlayerController.file(tempFile);
-      _addLog('Initializing video player...');
-      await _controller.initialize();
-      _addLog('Video player initialized.');
-      setState(() {});
+      return tempFile;
     } catch (e, s) {
-      _addLog('Error loading video: $e');
+      _addLog('Error loading video file: $e');
       _addLog('Stack trace: $s');
       rethrow;
     }
   }
 
+  void _addLog(String message) {
+    print(message); // For debugging
+    if (mounted) {
+      setState(() {
+        _log += '$message\n';
+      });
+    }
+  }
+
   @override
   void dispose() {
-    _controller.dispose();
+    _videoPlayerController.dispose();
+    _chewieController?.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text(widget.fileName),
-      ),
-      body: FutureBuilder(
-        future: _initializeVideoPlayerFuture,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return Center(child: CircularProgressIndicator());
-          } else if (snapshot.hasError) {
-            return Center(
-              child: SingleChildScrollView(
-                child: Text('動画を読み込めませんでした:\n$_log'),
-              ),
-            );
-          } else {
-            return Center(
-              child: _controller.value.isInitialized
-                  ? AspectRatio(
-                      aspectRatio: _controller.value.aspectRatio,
-                      child: VideoPlayer(_controller),
-                    )
-                  : const Text('動画の初期化に失敗しました。'),
-            );
-          }
-        },
-      ),
-      floatingActionButton: _controller.value.isInitialized
-          ? FloatingActionButton(
-              onPressed: () {
-                setState(() {
-                  _controller.value.isPlaying
-                      ? _controller.pause()
-                      : _controller.play();
-                });
-              },
-              child: Icon(
-                _controller.value.isPlaying ? Icons.pause : Icons.play_arrow,
+      appBar: AppBar(title: Text(widget.fileName)),
+      body: _isLoading
+          ? Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const CircularProgressIndicator(),
+                  const SizedBox(height: 20),
+                  Text('動画を読み込んでいます...', style: Theme.of(context).textTheme.titleMedium),
+                  const SizedBox(height: 20),
+                  Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Text(_log, style: Theme.of(context).textTheme.bodySmall),
+                  ),
+                ],
               ),
             )
-          : null,
+          : _chewieController != null && _chewieController!.videoPlayerController.value.isInitialized
+              ? Chewie(controller: _chewieController!)
+              : Center(
+                  child: SingleChildScrollView(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16.0),
+                      child: Text('動画の読み込みに失敗しました。\n\n$_log'),
+                    ),
+                  ),
+                ),
     );
   }
 }

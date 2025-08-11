@@ -113,7 +113,20 @@ class _VideoViewerScreenState extends State<VideoViewerScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(widget.fileName)),
+      appBar: AppBar(
+        title: Text(widget.fileName),
+        actions: [
+          if (Theme.of(context).platform == TargetPlatform.android &&
+              _chewieController != null &&
+              _chewieController!.videoPlayerController.value.isInitialized)
+            IconButton(
+              icon: const Icon(Icons.picture_in_picture),
+              onPressed: () async {
+                await platform.invokeMethod('enterPictureInPictureMode');
+              },
+            ),
+        ],
+      ),
       body: _isLoading
           ? Center(
               child: Column(
@@ -131,7 +144,23 @@ class _VideoViewerScreenState extends State<VideoViewerScreen> {
               ),
             )
           : _chewieController != null && _chewieController!.videoPlayerController.value.isInitialized
-              ? Chewie(controller: _chewieController!)
+              ? GestureDetector(
+                  onDoubleTapDown: (details) {
+                    final screenWidth = MediaQuery.of(context).size.width;
+                    if (details.globalPosition.dx > screenWidth / 2) {
+                      // Right half of the screen (forward 10 seconds)
+                      _chewieController!.seekTo(
+                          _chewieController!.videoPlayerController.value.position +
+                              const Duration(seconds: 10));
+                    } else {
+                      // Left half of the screen (rewind 10 seconds)
+                      _chewieController!.seekTo(
+                          _chewieController!.videoPlayerController.value.position -
+                              const Duration(seconds: 10));
+                    }
+                  },
+                  child: Chewie(controller: _chewieController!),
+                )
               : Center(
                   child: SingleChildScrollView(
                     child: Padding(

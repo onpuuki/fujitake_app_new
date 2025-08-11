@@ -24,7 +24,7 @@ android {
 
     defaultConfig {
         applicationId = "com.example.fujitake_app_new"
-        minSdkVersion(23) // ✅ ここを21から23に変更しました
+        minSdkVersion(26)
         targetSdk = 34
         versionCode = 1
         versionName = "1.0"

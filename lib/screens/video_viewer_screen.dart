@@ -39,11 +39,22 @@ class _VideoViewerScreenState extends State<VideoViewerScreen> {
   ChewieController? _chewieController;
   String _log = '';
   bool _isLoading = true;
+  bool _isInPipMode = false; // PiPモードの状態を追跡する変数
 
   @override
   void initState() {
     super.initState();
     _initializePlayer();
+
+    // MethodChannelからのイベントリスナーを設定
+    platform.setMethodCallHandler((call) async {
+      if (call.method == "onPictureInPictureModeChanged") {
+        setState(() {
+          _isInPipMode = call.arguments as bool;
+          _addLog("PiP Mode Changed: $_isInPipMode");
+        });
+      }
+    });
   }
 
   Future<void> _initializePlayer() async {
@@ -112,63 +123,64 @@ class _VideoViewerScreenState extends State<VideoViewerScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(widget.fileName),
-        actions: [
-          if (Theme.of(context).platform == TargetPlatform.android &&
-              _chewieController != null &&
-              _chewieController!.videoPlayerController.value.isInitialized)
-            IconButton(
-              icon: const Icon(Icons.picture_in_picture),
-              onPressed: () async {
-                await platform.invokeMethod('enterPictureInPictureMode');
-              },
+    return _isLoading
+        ? Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const CircularProgressIndicator(),
+                const SizedBox(height: 20),
+                Text('動画を読み込んでいます...', style: Theme.of(context).textTheme.titleMedium),
+                const SizedBox(height: 20),
+                Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Text(_log, style: Theme.of(context).textTheme.bodySmall),
+                ),
+              ],
             ),
-        ],
-      ),
-      body: _isLoading
-          ? Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
+          )
+        : _chewieController != null && _chewieController!.videoPlayerController.value.isInitialized
+            ? Stack( // Stackを使ってビデオを全画面に配置し、PiPボタンをオーバーレイする
                 children: [
-                  const CircularProgressIndicator(),
-                  const SizedBox(height: 20),
-                  Text('動画を読み込んでいます...', style: Theme.of(context).textTheme.titleMedium),
-                  const SizedBox(height: 20),
-                  Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: Text(_log, style: Theme.of(context).textTheme.bodySmall),
-                  ),
-                ],
-              ),
-            )
-          : _chewieController != null && _chewieController!.videoPlayerController.value.isInitialized
-              ? GestureDetector(
-                  onDoubleTapDown: (details) {
-                    final screenWidth = MediaQuery.of(context).size.width;
-                    if (details.globalPosition.dx > screenWidth / 2) {
-                      // Right half of the screen (forward 10 seconds)
-                      _chewieController!.seekTo(
-                          _chewieController!.videoPlayerController.value.position +
-                              const Duration(seconds: 10));
-                    } else {
-                      // Left half of the screen (rewind 10 seconds)
-                      _chewieController!.seekTo(
-                          _chewieController!.videoPlayerController.value.position -
-                              const Duration(seconds: 10));
-                    }
-                  },
-                  child: Chewie(controller: _chewieController!),
-                )
-              : Center(
-                  child: SingleChildScrollView(
-                    child: Padding(
-                      padding: const EdgeInsets.all(16.0),
-                      child: Text('動画の読み込みに失敗しました。\n\n$_log'),
+                  Positioned.fill(
+                    child: GestureDetector(
+                      onDoubleTapDown: (details) {
+                        final screenWidth = MediaQuery.of(context).size.width;
+                        if (details.globalPosition.dx > screenWidth / 2) {
+                          _chewieController!.seekTo(
+                              _chewieController!.videoPlayerController.value.position +
+                                  const Duration(seconds: 10));
+                        } else {
+                          _chewieController!.seekTo(
+                              _chewieController!.videoPlayerController.value.position -
+                                  const Duration(seconds: 10));
+                        }
+                      },
+                      child: Chewie(controller: _chewieController!),
                     ),
                   ),
+                  if (!_isInPipMode) // PiPモードでない場合にのみPiPボタンを表示
+                    Positioned(
+                      top: 0,
+                      right: 0,
+                      child: SafeArea( // ステータスバーとの重なりを避ける
+                        child: IconButton(
+                          icon: const Icon(Icons.picture_in_picture, color: Colors.white),
+                          onPressed: () async {
+                            await platform.invokeMethod('enterPictureInPictureMode');
+                          },
+                        ),
+                      ),
+                    ),
+                ],
+              )
+            : Center(
+                child: SingleChildScrollView(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Text('動画の読み込みに失敗しました。\n\n$_log'),
+                  ),
                 ),
-    );
+              );
   }
 }

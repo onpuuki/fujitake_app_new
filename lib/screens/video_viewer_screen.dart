@@ -48,11 +48,33 @@ class _VideoViewerScreenState extends State<VideoViewerScreen> {
 
     // MethodChannelからのイベントリスナーを設定
     platform.setMethodCallHandler((call) async {
-      if (call.method == "onPictureInPictureModeChanged") {
-        setState(() {
-          _isInPipMode = call.arguments as bool;
-          _addLog("PiP Mode Changed: $_isInPipMode");
-        });
+      switch (call.method) {
+        case "onPictureInPictureModeChanged":
+          setState(() {
+            _isInPipMode = call.arguments as bool;
+            _addLog("PiP Mode Changed: $_isInPipMode");
+          });
+          break;
+        case "onPlayPause":
+          if (_videoPlayerController.value.isPlaying) {
+            _videoPlayerController.pause();
+          } else {
+            _videoPlayerController.play();
+          }
+          _addLog("Play/Pause toggled by PiP control");
+          break;
+        case "onRewind":
+          _videoPlayerController.seekTo(
+              _videoPlayerController.value.position - const Duration(seconds: 10));
+          _addLog("Rewind 10 seconds by PiP control");
+          break;
+        case "onForward":
+          _videoPlayerController.seekTo(
+              _videoPlayerController.value.position + const Duration(seconds: 10));
+          _addLog("Forward 10 seconds by PiP control");
+          break;
+        default:
+          _addLog("Unknown method called: ${call.method}");
       }
     });
   }
@@ -68,6 +90,7 @@ class _VideoViewerScreenState extends State<VideoViewerScreen> {
         autoPlay: true,
         looping: false,
       );
+      _videoPlayerController.addListener(_videoPlayerListener); // Add listener
       _addLog('Video player initialized.');
     } catch (e, s) {
       _addLog('Error initializing video player: $e');
@@ -114,8 +137,16 @@ class _VideoViewerScreenState extends State<VideoViewerScreen> {
     }
   }
 
+  void _videoPlayerListener() {
+    if (_videoPlayerController.value.isPlaying != _chewieController!.isPlaying) {
+      platform.invokeMethod('setPlaybackState', {'isPlaying': _videoPlayerController.value.isPlaying});
+      _chewieController!.isPlaying = _videoPlayerController.value.isPlaying; // Update Chewie's internal state
+    }
+  }
+
   @override
   void dispose() {
+    _videoPlayerController.removeListener(_videoPlayerListener); // Remove listener
     _videoPlayerController.dispose();
     _chewieController?.dispose();
     super.dispose();

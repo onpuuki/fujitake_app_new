@@ -5,7 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:video_player/video_player.dart';
 import 'package:chewie/chewie.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:path/path.dart' as p;
+import 'package:share_plus/share_plus.dart';
 
 class VideoViewerScreen extends StatefulWidget {
   final String smbUrl;
@@ -37,22 +37,52 @@ class _VideoViewerScreenState extends State<VideoViewerScreen> {
   static const platform = MethodChannel('com.fujitake.nas/smb');
   late VideoPlayerController _videoPlayerController;
   ChewieController? _chewieController;
-  String _log = '';
   bool _isLoading = true;
-  bool _isInPipMode = false; // PiPモードの状態を追跡する変数
+  bool _isInPipMode = false;
+  StringBuffer _logBuffer = StringBuffer();
+  File? _logFile;
 
   @override
   void initState() {
     super.initState();
-    _initializePlayer();
+    _initialize();
+  }
 
-    // MethodChannelからのイベントリスナーを設定
+  Future<void> _initialize() async {
+    _addLog('Initializing...');
+    await _initializePlayer();
+    _setupMethodChannel();
+  }
+
+  void _setupMethodChannel() {
     platform.setMethodCallHandler((call) async {
-      if (call.method == "onPictureInPictureModeChanged") {
-        setState(() {
-          _isInPipMode = call.arguments as bool;
-          _addLog("PiP Mode Changed: $_isInPipMode");
-        });
+      _addLog("Method call received: ${call.method}");
+      switch (call.method) {
+        case "onPictureInPictureModeChanged":
+          setState(() {
+            _isInPipMode = call.arguments as bool;
+            _addLog("PiP Mode Changed: $_isInPipMode");
+          });
+          break;
+        case "onPipPlayPause":
+          if (_videoPlayerController.value.isPlaying) {
+            _videoPlayerController.pause();
+            _addLog("Video paused via PiP");
+          } else {
+            _videoPlayerController.play();
+            _addLog("Video played via PiP");
+          }
+          break;
+        case "onPipRewind":
+          final newPosition = _videoPlayerController.value.position - const Duration(seconds: 10);
+          _videoPlayerController.seekTo(newPosition);
+          _addLog("Rewound 10 seconds via PiP");
+          break;
+        case "onPipForward":
+          final newPosition = _videoPlayerController.value.position + const Duration(seconds: 10);
+          _videoPlayerController.seekTo(newPosition);
+          _addLog("Forwarded 10 seconds via PiP");
+          break;
       }
     });
   }
@@ -70,8 +100,7 @@ class _VideoViewerScreenState extends State<VideoViewerScreen> {
       );
       _addLog('Video player initialized.');
     } catch (e, s) {
-      _addLog('Error initializing video player: $e');
-      _addLog('Stack trace: $s');
+      _addLog('Error initializing video player: $e\nStack trace: $s');
     } finally {
       if (mounted) {
         setState(() {
@@ -82,7 +111,7 @@ class _VideoViewerScreenState extends State<VideoViewerScreen> {
   }
 
   Future<String> _getStreamingUrl() async {
-    _addLog('Attempting to get streaming URL via native code...');
+    _addLog('Attempting to get streaming URL...');
     try {
       final Map<String, dynamic> arguments = {
         'smbUrl': widget.smbUrl,
@@ -99,18 +128,37 @@ class _VideoViewerScreenState extends State<VideoViewerScreen> {
       _addLog('Streaming URL received: $streamingUrl');
       return streamingUrl;
     } catch (e, s) {
-      _addLog('Error getting streaming URL: $e');
-      _addLog('Stack trace: $s');
+      _addLog('Error getting streaming URL: $e\nStack trace: $s');
       rethrow;
     }
   }
 
   void _addLog(String message) {
-    print(message); // For debugging
-    if (mounted) {
-      setState(() {
-        _log += '$message\n';
-      });
+    print(message); // Keep console log for live debugging
+    final timestamp = DateTime.now().toIso8601String();
+    _logBuffer.writeln('$timestamp - $message');
+  }
+
+  Future<void> _shareLogFile() async {
+    try {
+      final directory = await getTemporaryDirectory();
+      final file = File('${directory.path}/pip_log.txt');
+      await file.writeAsString(_logBuffer.toString());
+      _addLog('Log file created at ${file.path}');
+
+      final result = await Share.shareXFiles(
+        [XFile(file.path)],
+        text: 'PiP Player Log File',
+        subject: 'Log File from Fujitake App',
+      );
+
+      if (result.status == ShareResultStatus.success) {
+        _addLog('Log file shared successfully.');
+      } else {
+        _addLog('Log file sharing failed with status: ${result.status}');
+      }
+    } catch (e, s) {
+      _addLog('Error sharing log file: $e\nStack trace: $s');
     }
   }
 
@@ -123,64 +171,72 @@ class _VideoViewerScreenState extends State<VideoViewerScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return _isLoading
-        ? Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const CircularProgressIndicator(),
-                const SizedBox(height: 20),
-                Text('動画を読み込んでいます...', style: Theme.of(context).textTheme.titleMedium),
-                const SizedBox(height: 20),
-                Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: Text(_log, style: Theme.of(context).textTheme.bodySmall),
-                ),
-              ],
-            ),
-          )
-        : _chewieController != null && _chewieController!.videoPlayerController.value.isInitialized
-            ? Stack( // Stackを使ってビデオを全画面に配置し、PiPボタンをオーバーレイする
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(widget.fileName),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.share),
+            onPressed: _shareLogFile,
+            tooltip: 'Share Log File',
+          ),
+        ],
+      ),
+      body: _isLoading
+          ? const Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Positioned.fill(
-                    child: GestureDetector(
-                      onDoubleTapDown: (details) {
-                        final screenWidth = MediaQuery.of(context).size.width;
-                        if (details.globalPosition.dx > screenWidth / 2) {
-                          _chewieController!.seekTo(
-                              _chewieController!.videoPlayerController.value.position +
-                                  const Duration(seconds: 10));
-                        } else {
-                          _chewieController!.seekTo(
-                              _chewieController!.videoPlayerController.value.position -
-                                  const Duration(seconds: 10));
-                        }
-                      },
-                      child: Chewie(controller: _chewieController!),
-                    ),
-                  ),
-                  if (!_isInPipMode) // PiPモードでない場合にのみPiPボタンを表示
-                    Positioned(
-                      top: 0,
-                      right: 0,
-                      child: SafeArea( // ステータスバーとの重なりを避ける
-                        child: IconButton(
-                          icon: const Icon(Icons.picture_in_picture, color: Colors.white),
-                          onPressed: () async {
-                            await platform.invokeMethod('enterPictureInPictureMode');
-                          },
-                        ),
+                  CircularProgressIndicator(),
+                  SizedBox(height: 20),
+                  Text('動画を読み込んでいます...'),
+                ],
+              ),
+            )
+          : _chewieController != null &&
+                  _chewieController!.videoPlayerController.value.isInitialized
+              ? Stack(
+                  children: [
+                    Positioned.fill(
+                      child: GestureDetector(
+                        onDoubleTapDown: (details) {
+                          final screenWidth = MediaQuery.of(context).size.width;
+                          if (details.globalPosition.dx > screenWidth / 2) {
+                            _chewieController!.seekTo(
+                                _chewieController!.videoPlayerController.value.position +
+                                    const Duration(seconds: 10));
+                          } else {
+                            _chewieController!.seekTo(
+                                _chewieController!.videoPlayerController.value.position -
+                                    const Duration(seconds: 10));
+                          }
+                        },
+                        child: Chewie(controller: _chewieController!),
                       ),
                     ),
-                ],
-              )
-            : Center(
-                child: SingleChildScrollView(
+                    if (!_isInPipMode)
+                      Positioned(
+                        top: 0,
+                        right: 0,
+                        child: SafeArea(
+                          child: IconButton(
+                            icon: const Icon(Icons.picture_in_picture_alt, color: Colors.white),
+                            onPressed: () async {
+                              await platform.invokeMethod('enterPictureInPictureMode');
+                            },
+                          ),
+                        ),
+                      ),
+                  ],
+                )
+              : Center(
                   child: Padding(
                     padding: const EdgeInsets.all(16.0),
-                    child: Text('動画の読み込みに失敗しました。\n\n$_log'),
+                    child: Text(
+                      '動画の読み込みに失敗しました。\n\nログ:\n${_logBuffer.toString()}',
+                    ),
                   ),
                 ),
-              );
+    );
   }
 }

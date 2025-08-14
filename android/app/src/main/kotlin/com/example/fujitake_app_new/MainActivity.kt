@@ -1,33 +1,64 @@
 package com.example.fujitake_app_new
 
-import io.flutter.embedding.android.FlutterActivity
+import android.app.PendingIntent
+import android.app.PictureInPictureParams
+import android.app.RemoteAction
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.graphics.drawable.Icon
+import android.os.Build
+import android.util.Log
+import android.util.Rational
+import androidx.annotation.RequiresApi
 import fi.iki.elonen.NanoHTTPD
-import java.io.InputStream
-
+import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import java.util.Properties
+import java.io.InputStream
 import jcifs.CIFSContext
 import jcifs.config.PropertyConfiguration
 import jcifs.context.BaseContext
 import jcifs.smb.NtlmPasswordAuthentication
 import jcifs.smb.SmbFile
-
 import java.security.Security
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.bouncycastle.jce.provider.BouncyCastleProvider
+import java.util.Properties
+import com.example.fujitake_app_new.R
 
-import android.app.PictureInPictureParams
-import android.os.Build
-import android.util.Rational
+private const val ACTION_PIP_CONTROL = "pip_control"
+private const val EXTRA_CONTROL_TYPE = "control_type"
+private const val CONTROL_TYPE_PLAY_PAUSE = 1
+private const val CONTROL_TYPE_REWIND = 2
+private const val CONTROL_TYPE_FORWARD = 3
 
 class MainActivity: FlutterActivity() {
     private val CHANNEL = "com.fujitake.nas/smb"
     private var streamingServer: StreamingServer? = null
     private var methodChannel: MethodChannel? = null
+    private var isPlaying = true
+
+    private val receiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action != ACTION_PIP_CONTROL) {
+                return
+            }
+            when (intent.getIntExtra(EXTRA_CONTROL_TYPE, 0)) {
+                CONTROL_TYPE_PLAY_PAUSE -> {
+                    isPlaying = !isPlaying
+                    updatePictureInPictureParams()
+                    methodChannel?.invokeMethod("onPipPlayPause", null)
+                }
+                CONTROL_TYPE_REWIND -> methodChannel?.invokeMethod("onPipRewind", null)
+                CONTROL_TYPE_FORWARD -> methodChannel?.invokeMethod("onPipForward", null)
+            }
+        }
+    }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -94,10 +125,7 @@ class MainActivity: FlutterActivity() {
                 }
                 "enterPictureInPictureMode" -> {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                        val params = PictureInPictureParams.Builder()
-                            .setAspectRatio(Rational(16, 9))
-                            .build()
-                        enterPictureInPictureMode(params)
+                        updatePictureInPictureParams()
                         result.success(null)
                     } else {
                         result.notImplemented()
@@ -108,14 +136,101 @@ class MainActivity: FlutterActivity() {
         }
     }
 
+    @RequiresApi(Build.VERSION_CODES.O)
+    private fun updatePictureInPictureParams() {
+        val actions = ArrayList<RemoteAction>()
+
+        // Rewind action
+        actions.add(
+            RemoteAction(
+                Icon.createWithResource(applicationContext, R.drawable.ic_rewind),
+                "Rewind",
+                "Rewind 10 seconds",
+                PendingIntent.getBroadcast(
+                    applicationContext,
+                    CONTROL_TYPE_REWIND,
+                    Intent(ACTION_PIP_CONTROL).putExtra(EXTRA_CONTROL_TYPE, CONTROL_TYPE_REWIND),
+                    PendingIntent.FLAG_IMMUTABLE
+                )
+            )
+        )
+
+        // Play/Pause action
+        val playPauseIcon = if (isPlaying) R.drawable.ic_pause else R.drawable.ic_play
+        actions.add(
+            RemoteAction(
+                Icon.createWithResource(applicationContext, playPauseIcon),
+                "Play/Pause",
+                "Toggle play/pause",
+                PendingIntent.getBroadcast(
+                    applicationContext,
+                    CONTROL_TYPE_PLAY_PAUSE,
+                    Intent(ACTION_PIP_CONTROL).putExtra(EXTRA_CONTROL_TYPE, CONTROL_TYPE_PLAY_PAUSE),
+                    PendingIntent.FLAG_IMMUTABLE
+                )
+            )
+        )
+
+        // Forward action
+        actions.add(
+            RemoteAction(
+                Icon.createWithResource(applicationContext, R.drawable.ic_forward),
+                "Forward",
+                "Forward 10 seconds",
+                PendingIntent.getBroadcast(
+                    applicationContext,
+                    CONTROL_TYPE_FORWARD,
+                    Intent(ACTION_PIP_CONTROL).putExtra(EXTRA_CONTROL_TYPE, CONTROL_TYPE_FORWARD),
+                    PendingIntent.FLAG_IMMUTABLE
+                )
+            )
+        )
+
+        val params = PictureInPictureParams.Builder()
+            .setAspectRatio(Rational(16, 9))
+            .setActions(actions)
+            .build()
+        
+        if (isInPictureInPictureMode) {
+            setPictureInPictureParams(params)
+        } else {
+            enterPictureInPictureMode(params)
+        }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        // Register the receiver when the activity is starting.
+        // This ensures the receiver is ready before PiP mode is entered.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(receiver, IntentFilter(ACTION_PIP_CONTROL), RECEIVER_NOT_EXPORTED)
+        } else {
+            registerReceiver(receiver, IntentFilter(ACTION_PIP_CONTROL))
+        }
+    }
+
     override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean) {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode)
-        methodChannel?.invokeMethod("onPictureInPictureModeChanged", mapOf("isInPictureInPictureMode" to isInPictureInPictureMode))
+        // Just notify Flutter of the mode change.
+        methodChannel?.invokeMethod("onPictureInPictureModeChanged", isInPictureInPictureMode)
+    }
+
+    override fun onStop() {
+        super.onStop()
+        // DO NOT unregister the receiver here.
+        // If we do, it will be unregistered when entering PiP mode,
+        // and the controls will stop working.
     }
 
     override fun onDestroy() {
         super.onDestroy()
         streamingServer?.stop()
+        // Unregister the receiver only when the activity is being destroyed.
+        try {
+            unregisterReceiver(receiver)
+        } catch (e: IllegalArgumentException) {
+            // Receiver was not registered, ignore.
+        }
     }
 
     private fun listSmbFiles(host: String, port: Int?, domain: String?, user: String?, pass: String?, share: String, path: String): List<Map<String, Any?>> {

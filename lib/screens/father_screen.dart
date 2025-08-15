@@ -6,7 +6,9 @@ import 'package:fujitake_app_new/screens/favorite_websites_list_screen.dart'; //
 import 'package:fujitake_app_new/screens/nas_viewer_screen.dart';
 
 class FatherScreen extends StatelessWidget {
-  const FatherScreen({super.key});
+  final List<String> pipLogs;
+
+  const FatherScreen({super.key, required this.pipLogs});
 
   @override
   Widget build(BuildContext context) {
@@ -120,7 +122,7 @@ class FatherScreen extends StatelessWidget {
                   onPressed: () {
                     Navigator.push(
                       context,
-                      MaterialPageRoute(builder: (context) => const DebugScreen()),
+                      MaterialPageRoute(builder: (context) => DebugScreen(pipLogs: pipLogs)),
                     );
                   },
                   style: ElevatedButton.styleFrom(

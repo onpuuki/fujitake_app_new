@@ -38,7 +38,6 @@
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
-
             <!-- 共有インテントを受け取るための設定 -->
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
@@ -50,7 +49,7 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:mimeType="text/plain" />
             </intent-filter>
-            <!-- 画像の共有を受け取る場合（image_pickerやimage_cropperが内部で利用する可能性も考慮） -->
+            <!-- 画像の共有を受け取る場合 -->
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -61,11 +60,17 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:mimeType="image/*" />
             </intent-filter>
-
         </activity>
 
+        <receiver
+            android:name=".PipControlReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="pip_control" />
+            </intent-filter>
+        </receiver>
+
         <!-- image_cropper が必要とするアクティビティの宣言 -->
-        <!-- このアクティビティは <application> タグ内に配置してください -->
         <activity
             android:name="com.yalantis.ucrop.UCropActivity"
             android:screenOrientation="portrait"

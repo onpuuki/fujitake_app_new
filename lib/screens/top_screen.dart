@@ -73,7 +73,7 @@ class _TopScreenState extends State<TopScreen> {
                     onPressed: () {
                       Navigator.push(
                         context,
-                        MaterialPageRoute(builder: (context) => const FatherScreen()),
+                        MaterialPageRoute(builder: (context) => const FatherScreen(pipLogs: [])),
                       );
                     },
                     style: ElevatedButton.styleFrom(

@@ -6,6 +6,7 @@ import 'package:video_player/video_player.dart';
 import 'package:chewie/chewie.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:fujitake_app_new/screens/father_screen.dart';
 
 class VideoViewerScreen extends StatefulWidget {
   final String smbUrl;
@@ -63,6 +64,12 @@ class _VideoViewerScreenState extends State<VideoViewerScreen> {
             _isInPipMode = call.arguments as bool;
             _addLog("PiP Mode Changed: $_isInPipMode");
           });
+          break;
+        case "onPipLog":
+          final message = call.arguments as String?;
+          if (message != null) {
+            _addLog("NATIVE: $message");
+          }
           break;
         case "onPipPlayPause":
           if (_videoPlayerController.value.isPlaying) {
@@ -176,9 +183,18 @@ class _VideoViewerScreenState extends State<VideoViewerScreen> {
         title: Text(widget.fileName),
         actions: [
           IconButton(
-            icon: const Icon(Icons.share),
-            onPressed: _shareLogFile,
-            tooltip: 'Share Log File',
+            icon: const Icon(Icons.build_circle), //デバッグっぽいアイコンに変更
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => FatherScreen(
+                    pipLogs: _logBuffer.toString().split('\n'),
+                  ),
+                ),
+              );
+            },
+            tooltip: 'デバッグ機能を開く',
           ),
         ],
       ),

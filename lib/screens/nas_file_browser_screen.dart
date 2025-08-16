@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
+import '../services/cache_service.dart';
 import '../models/nas_server_model.dart';
 import 'image_viewer_screen.dart';
 import 'video_viewer_screen.dart';
@@ -113,33 +115,40 @@ class _NasFileBrowserScreenState extends State<NasFileBrowserScreen> {
     }
   }
 
-  void _openFile(SmbNativeFile file) {
-    final newPath = p.join(_currentPath, file.name);
+  Future<void> _openFile(SmbNativeFile file) async {
+    final remotePath = p.join(_currentPath, file.name);
+
     if (file.isDirectory) {
-      _listFiles(path: newPath);
-    } else {
-      final fileExtension = p.extension(file.name).toLowerCase();
-      if (['.jpg', '.jpeg', '.png', '.gif', '.bmp'].contains(fileExtension)) {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => ImageViewerScreen(
-              server: widget.server,
-              imagePath: newPath,
-            ),
+      _listFiles(path: remotePath);
+      return;
+    }
+
+    // キャッシュを確認
+    final localPath = await CacheService.instance.getLocalPath(remotePath);
+
+    final fileExtension = p.extension(file.name).toLowerCase();
+    if (['.jpg', '.jpeg', '.png', '.gif', '.bmp'].contains(fileExtension)) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => ImageViewerScreen(
+            server: widget.server,
+            imagePath: remotePath,
+            localPath: localPath, // ローカルパスを渡す
           ),
-        );
-      } else if (_isVideoFile(file.name)) {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => VideoViewerScreen(
-              server: widget.server,
-              videoPath: newPath,
-            ),
+        ),
+      );
+    } else if (_isVideoFile(file.name)) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => VideoViewerScreen(
+            server: widget.server,
+            videoPath: remotePath,
+            localPath: localPath, // ローカルパスを渡す
           ),
-        );
-      }
+        ),
+      );
     }
   }
 
@@ -244,6 +253,11 @@ class _NasFileBrowserScreenState extends State<NasFileBrowserScreen> {
             leading: _buildThumbnail(file),
             title: Text(file.name),
             onTap: () => _openFile(file),
+onLongPress: () {
+  if (file.isDirectory) {
+    _showCacheMenu(context, file);
+  }
+},
           ),
         );
       },
@@ -300,4 +314,177 @@ class _NasFileBrowserScreenState extends State<NasFileBrowserScreen> {
         extension == '.mkv' ||
         extension == '.wmv';
   }
+
+  // キャッシュメニューを表示する
+  void _showCacheMenu(BuildContext context, SmbNativeFile directory) {
+    showModalBottomSheet(
+      context: context,
+      builder: (context) {
+        return Wrap(
+          children: <Widget>[
+            ListTile(
+              leading: const Icon(Icons.download_for_offline),
+              title: const Text('このフォルダをキャッシュする'),
+              onTap: () {
+                Navigator.pop(context); // メニューを閉じる
+                _showCacheOptions(context, directory);
+              },
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  // キャッシュオプションダイアログを表示する
+  void _showCacheOptions(BuildContext context, SmbNativeFile directory) {
+    showDialog(
+      context: context,
+      builder: (context) {
+        bool includeSubfolders = true; // デフォルトはサブフォルダも含む
+        return StatefulBuilder(
+          builder: (context, setState) {
+            return AlertDialog(
+              title: Text('キャッシュ設定: ${directory.name}'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CheckboxListTile(
+                    title: const Text('サブフォルダもすべてキャッシュする'),
+                    value: includeSubfolders,
+                    onChanged: (bool? value) {
+                      setState(() {
+                        includeSubfolders = value!;
+                      });
+                    },
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('キャンセル'),
+                ),
+                TextButton(
+                  onPressed: () {
+                    Navigator.pop(context); // ダイアログを閉じる
+                    _startCaching(context, directory, includeSubfolders);
+                  },
+                  child: const Text('開始'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  // キャッシュ処理を開始する
+  Future<void> _startCaching(BuildContext context, SmbNativeFile directory, bool includeSubfolders) async {
+    final scaffoldMessenger = ScaffoldMessenger.of(context);
+    final remotePath = p.join(_currentPath, directory.name);
+    
+    scaffoldMessenger.showSnackBar(
+      SnackBar(content: Text('キャッシュ処理を開始します: ${directory.name}')),
+    );
+
+    try {
+      // 1. キャッシュ用ディレクトリの準備
+      final cacheDir = await getApplicationDocumentsDirectory();
+      final localCachePath = p.join(cacheDir.path, 'nas_cache');
+
+      // 2. ファイル一覧の再帰的取得
+      final filesToCache = await _fetchAllFilesRecursively(remotePath, includeSubfolders);
+
+      if (!mounted) return;
+      scaffoldMessenger.showSnackBar(
+        SnackBar(content: Text('${filesToCache.length}個のファイルが見つかりました。ダウンロードを開始します。')),
+      );
+
+      // 3. ダウンロードとDB登録のループ
+      int successCount = 0;
+      for (final file in filesToCache) {
+        if (!mounted) return; // 処理中に画面が破棄された場合は中断
+
+        final isCached = await CacheService.instance.isFileCached(file.remotePath);
+        if (!isCached) {
+          try {
+            final localFilePath = p.join(localCachePath, file.remotePath);
+            
+            // ネイティブメソッド呼び出し
+            final success = await MethodChannel('com.example.fujitake_app_new/smb').invokeMethod('downloadFile', {
+              'host': widget.server.host,
+              'shareName': widget.server.shareName,
+              'username': widget.server.username,
+              'password': widget.server.password,
+              'domain': widget.server.domain,
+              'path': file.remotePath,
+              'localPath': localFilePath,
+            });
+
+            if (success == true) {
+              await CacheService.instance.addFileToCache(file.remotePath, localFilePath, file.size);
+              successCount++;
+              print('Cached: ${file.remotePath}');
+            }
+          } catch (e) {
+            print('Failed to cache ${file.remotePath}: $e');
+          }
+        } else {
+           print('Already cached, skipping: ${file.remotePath}');
+           successCount++; // すでにキャッシュされているものも成功と見なす
+        }
+      }
+
+      if (!mounted) return;
+      scaffoldMessenger.showSnackBar(
+        SnackBar(content: Text('キャッシュ処理完了！ ($successCount / ${filesToCache.length}個)')),
+      );
+
+    } catch (e) {
+       if (!mounted) return;
+       scaffoldMessenger.showSnackBar(
+        SnackBar(content: Text('キャッシュ処理中にエラーが発生しました: $e')),
+      );
+    }
+  }
+
+  // ヘルパー: ファイルを再帰的に取得する
+  Future<List<_CacheTaskItem>> _fetchAllFilesRecursively(String currentPath, bool recursive) async {
+    final List<_CacheTaskItem> allFiles = [];
+    final channel = MethodChannel('com.example.fujitake_app_new/smb');
+
+    // 指定されたディレクトリ内のアイテムを取得
+    final List<dynamic> items = await channel.invokeMethod('listFiles', {
+      'host': widget.server.host,
+      'shareName': widget.server.shareName,
+      'username': widget.server.username,
+      'password': widget.server.password,
+      'domain': widget.server.domain,
+      'path': currentPath,
+    });
+
+    final filesInDir = items.map((item) => SmbNativeFile.fromMap(item)).toList();
+
+    for (final item in filesInDir) {
+      final itemRemotePath = p.join(currentPath, item.name);
+      if (item.isDirectory) {
+        if (recursive) {
+          allFiles.addAll(await _fetchAllFilesRecursively(itemRemotePath, true));
+        }
+      } else {
+        allFiles.add(_CacheTaskItem(remotePath: itemRemotePath, size: item.size.toInt()));
+      }
+    }
+    return allFiles;
+  }
 }
+
+// ヘルパークラス: キャッシュタスクのアイテム
+class _CacheTaskItem {
+  final String remotePath;
+  final int size;
+  _CacheTaskItem({required this.remotePath, required this.size});
+}
+

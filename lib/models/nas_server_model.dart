@@ -78,4 +78,5 @@ class NasServer {
       shareName: json['shareName'],
     );
   }
+
 }

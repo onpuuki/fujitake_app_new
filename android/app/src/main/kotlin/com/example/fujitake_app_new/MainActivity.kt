@@ -43,6 +43,13 @@ import java.io.FileOutputStream
 
 
 
+data class SmbNativeFile(
+    val name: String,
+    val isDirectory: Boolean,
+    val size: Long,
+    val lastModified: Long
+)
+
 class MainActivity: FlutterActivity() {
     companion object {
         const val ACTION_PIP_CONTROL = "pip_control"
@@ -53,7 +60,7 @@ class MainActivity: FlutterActivity() {
         const val CONTROL_TYPE_FORWARD = 3
     }
 
-    private val CHANNEL = "com.fujitake.nas/smb"
+    private val CHANNEL = "com.example.fujitake_app_new/smb"
     private var streamingServer: StreamingServer? = null
     private var methodChannel: MethodChannel? = null
     private var isPlaying = true
@@ -72,6 +79,7 @@ class MainActivity: FlutterActivity() {
             }
             val controlType = intent.getIntExtra(EXTRA_CONTROL_TYPE, 0)
             methodChannel?.invokeMethod("onPipLog", "Internal broadcast received: Control type $controlType")
+
 
             when (controlType) {
                 MainActivity.CONTROL_TYPE_PLAY_PAUSE -> {
@@ -135,10 +143,38 @@ class MainActivity: FlutterActivity() {
                         }
                     }
                 }
+                "listShares" -> {
+                    val host = call.argument<String>("host")
+                    val username = call.argument<String>("username")
+                    val password = call.argument<String>("password")
+
+                    if (host == null) {
+                        result.error("INVALID_ARGUMENTS", "Host is required.", null)
+                        return@setMethodCallHandler
+                    }
+
+                    CoroutineScope(Dispatchers.IO).launch {
+                        try {
+                            val context = createCifsContext(null, username, password)
+                            val smbFile = SmbFile("smb://$host/", context)
+                            
+                            val shares = smbFile.listFiles().map { it.name.removeSuffix("/") }
+
+                            withContext(Dispatchers.Main) {
+                                result.success(shares)
+                            }
+                        } catch (e: Exception) {
+                            withContext(Dispatchers.Main) {
+                                result.error("SMB_ERROR", "Failed to list shares: ${e.message}", e.toString())
+                            }
+                        }
+                    }
+                }
                 "startStreaming" -> {
                     val smbUrl = call.argument<String>("smbUrl")
-                    if (smbUrl == null) {
-                        result.error("INVALID_ARGUMENTS", "smbUrl is required.", null)
+                    val fileName = call.argument<String>("fileName")
+                    if (smbUrl == null || fileName == null) {
+                        result.error("INVALID_ARGUMENTS", "smbUrl and fileName are required.", null)
                         return@setMethodCallHandler
                     }
 
@@ -150,7 +186,7 @@ class MainActivity: FlutterActivity() {
 
                     CoroutineScope(Dispatchers.IO).launch {
                         try {
-                            val streamingUrl = startStreaming(host, port, domain, username, password, smbUrl)
+                            val streamingUrl = startStreaming(host, port, domain, username, password, smbUrl, fileName)
                             withContext(Dispatchers.Main) {
                                 result.success(streamingUrl)
                             }
@@ -186,28 +222,58 @@ class MainActivity: FlutterActivity() {
                 }
                 "getThumbnail" -> {
                     val host = call.argument<String>("host")
-                    val port = call.argument<Int>("port")
-                    val domain = call.argument<String>("domain")
-                    val username = call.argument<String>("username")
-                    val password = call.argument<String>("password")
                     val shareName = call.argument<String>("shareName")
                     val path = call.argument<String>("path")
                     val isVideo = call.argument<Boolean>("isVideo") ?: false
-
-                    if (host == null || shareName == null || path == null) {
-                        result.error("INVALID_ARGUMENTS", "Host, shareName, and path are required.", null)
+                    val username = call.argument<String>("username")
+                    val password = call.argument<String>("password")
+                    val fileMap = call.argument<Map<String, Any>>("file")
+                    
+                    if (host == null || shareName == null || path == null || fileMap == null) {
+                        result.error("INVALID_ARGUMENTS", "Host, shareName, path, and file are required.", null)
                         return@setMethodCallHandler
                     }
 
                     CoroutineScope(Dispatchers.IO).launch {
                         try {
-                            val thumbnail = getThumbnail(host, port, domain, username, password, shareName, path, isVideo)
+                            val file = SmbNativeFile(
+                                name = fileMap["name"] as String,
+                                isDirectory = fileMap["isDirectory"] as Boolean,
+                                size = (fileMap["size"] as Number).toLong(),
+                                lastModified = (fileMap["lastModified"] as Number).toLong()
+                            )
+                            val thumbnail = getThumbnail(host, shareName, path, isVideo, file, username, password)
                             withContext(Dispatchers.Main) {
                                 result.success(thumbnail)
                             }
                         } catch (e: Exception) {
                             withContext(Dispatchers.Main) {
                                 result.error("THUMBNAIL_ERROR", e.message, e.toString())
+                            }
+                        }
+                    }
+                }
+                "readFile" -> {
+                    val smbUrl = call.argument<String>("smbUrl")
+                    val domain = call.argument<String>("domain")
+                    val username = call.argument<String>("username")
+                    val password = call.argument<String>("password")
+
+                    if (smbUrl == null) {
+                        result.error("INVALID_ARGUMENTS", "smbUrl is required.", null)
+                        return@setMethodCallHandler
+                    }
+
+                    CoroutineScope(Dispatchers.IO).launch {
+                        try {
+                            val smbFile = createSmbFile(smbUrl, domain, username, password)
+                            val fileBytes = smbFile.inputStream.use { it.readBytes() }
+                            withContext(Dispatchers.Main) {
+                                result.success(fileBytes)
+                            }
+                        } catch (e: Exception) {
+                            withContext(Dispatchers.Main) {
+                                result.error("FILE_READ_ERROR", e.message, e.toString())
                             }
                         }
                     }
@@ -293,90 +359,8 @@ class MainActivity: FlutterActivity() {
         enterPictureInPictureMode(params)
     }
 
-    override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean) {
-        super.onPictureInPictureModeChanged(isInPictureInPictureMode)
-        // Just notify Flutter of the mode change.
-        methodChannel?.invokeMethod("onPictureInPictureModeChanged", isInPictureInPictureMode)
-    }
 
-    override fun onDestroy() {
-        super.onDestroy()
-        unregisterReceiver(pipControlReceiver)
-        streamingServer?.stop()
-    }
-
-    private fun listSmbFiles(host: String, port: Int?, domain: String?, user: String?, pass: String?, share: String, path: String): List<Map<String, Any?>> {
-        val smbUrl = if (port != null) {
-            "smb://$host:$port/$share$path"
-        } else {
-            "smb://$host/$share$path"
-        }
-
-        val prop = Properties()
-        prop.setProperty("jcifs.smb.client.ntlm.v2", "true")
-        prop.setProperty("jcifs.smb.client.useNtlm2", "true")
-        prop.setProperty("jcifs.smb.client.minVersion", "SMB202")
-        prop.setProperty("jcifs.smb.client.maxVersion", "SMB311")
-        prop.setProperty("jcifs.encoding", "UTF-8")
-        
-        val bc = BaseContext(PropertyConfiguration(prop))
-        
-        val auth: CIFSContext = if (user != null && pass != null && user.isNotEmpty()) {
-            val creds = NtlmPasswordAuthentication(bc, domain, user, pass)
-            bc.withCredentials(creds)
-        } else {
-            bc.withGuestCrendentials()
-        }
-
-        val smbFile = SmbFile(smbUrl, auth)
-        val files = smbFile.listFiles() ?: return emptyList()
-
-        return files.map {
-            mapOf(
-                "name" to it.name,
-                "isDirectory" to it.isDirectory,
-                "size" to it.length(),
-                "lastModified" to it.lastModified()
-            )
-        }
-    }
-
-    private fun startStreaming(host: String?, port: Int?, domain: String?, user: String?, pass: String?, smbUrl: String): String {
-        val prop = Properties()
-        prop.setProperty("jcifs.smb.client.ntlm.v2", "true")
-        prop.setProperty("jcifs.smb.client.useNtlm2", "true")
-        prop.setProperty("jcifs.smb.client.minVersion", "SMB202")
-        prop.setProperty("jcifs.smb.client.maxVersion", "SMB311")
-        prop.setProperty("jcifs.encoding", "UTF-8")
-        val bc = BaseContext(PropertyConfiguration(prop))
-        
-        val auth: CIFSContext = if (user != null && pass != null && user.isNotEmpty()) {
-            val creds = NtlmPasswordAuthentication(bc, domain, user, pass)
-            bc.withCredentials(creds)
-        } else {
-            bc.withGuestCrendentials()
-        }
-
-        val smbFile = SmbFile(smbUrl, auth)
-        return streamingServer!!.serveSmbFile(smbFile)
-    }
-
-    private fun getThumbnail(host: String, port: Int?, domain: String?, user: String?, pass: String?, share: String, path: String, isVideo: Boolean): ByteArray? {
-        return if (isVideo) {
-            // For videos, get a streaming URL and retrieve the thumbnail remotely
-            val smbUrl = if (port != null) "smb://$host:$port/$share$path" else "smb://$host/$share$path"
-            val streamingUrl = startStreaming(host, port, domain, user, pass, smbUrl)
-            getVideoThumbnail(streamingUrl)
-        } else {
-            // For images, read the file directly
-            val smbUrl = if (port != null) "smb://$host:$port/$share$path" else "smb://$host/$share$path"
-            val smbFile = createSmbFile(smbUrl, domain, user, pass)
-            getImageThumbnail(smbFile)
-        }
-    }
-
-    // Helper to create SmbFile object
-    private fun createSmbFile(smbUrl: String, domain: String?, user: String?, pass: String?): SmbFile {
+    private fun createCifsContext(domain: String?, user: String?, pass: String?): CIFSContext {
         val prop = Properties().apply {
             setProperty("jcifs.smb.client.ntlm.v2", "true")
             setProperty("jcifs.smb.client.useNtlm2", "true")
@@ -385,13 +369,92 @@ class MainActivity: FlutterActivity() {
             setProperty("jcifs.encoding", "UTF-8")
         }
         val bc = BaseContext(PropertyConfiguration(prop))
-        val auth: CIFSContext = if (user != null && pass != null && user.isNotEmpty()) {
-            bc.withCredentials(NtlmPasswordAuthentication(bc, domain, user, pass))
+        return if (user != null && pass != null && user.isNotEmpty()) {
+            val creds = NtlmPasswordAuthentication(bc, domain, user, pass)
+            bc.withCredentials(creds)
         } else {
             bc.withGuestCrendentials()
         }
+    }
+
+    override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode)
+        // Just notify Flutter of the mode change.
+        methodChannel?.invokeMethod("onPictureInPictureModeChanged", isInPictureInPictureMode)
+    }
+    private fun createSmbFile(smbUrl: String, domain: String?, user: String?, pass: String?): SmbFile {
+        val auth = createCifsContext(domain, user, pass)
         return SmbFile(smbUrl, auth)
     }
+
+
+    override fun onDestroy() {
+        super.onDestroy()
+        unregisterReceiver(pipControlReceiver)
+        streamingServer?.stop()
+    }
+
+    private fun listSmbFiles(host: String, port: Int?, domain: String?, user: String?, pass: String?, share: String, path: String): List<Map<String, Any?>> {
+        val authContext = createCifsContext(domain, user, pass)
+        // Ensure path ends with a slash if it's not empty
+        val correctedPath = if (path.isNotEmpty() && !path.endsWith('/')) "$path/" else path
+        val smbUrl = "smb://$host/$share/$correctedPath"
+        val smbDir = SmbFile(smbUrl, authContext)
+
+        return smbDir.listFiles().map { file ->
+            mapOf(
+                "name" to file.name.removeSuffix("/"),
+                "isDirectory" to file.isDirectory,
+                "size" to file.length(),
+                "lastModified" to file.lastModified()
+            )
+        }
+    }
+
+    private fun startStreaming(host: String?, port: Int?, domain: String?, user: String?, pass: String?, smbUrl: String, fileName: String): String {
+        val auth = createCifsContext(domain, user, pass)
+        val smbFile = SmbFile(smbUrl, auth)
+        return streamingServer!!.serveSmbFile(fileName, smbFile)
+    }
+
+    private fun getThumbnail(host: String, shareName: String, path: String, isVideo: Boolean, file: SmbNativeFile, user: String?, pass: String?): ByteArray? {
+        val auth = if (user != null && pass != null && user.isNotEmpty()) "$user:$pass@" else ""
+        val smbUrl = "smb://$auth$host/$shareName/$path"
+        val smbFile = createSmbFile(smbUrl, null, user, pass)
+        
+        return if (isVideo) {
+             try {
+                val tempFile = File.createTempFile("thumb", ".${file.name.split('.').last()}")
+                tempFile.deleteOnExit()
+                smbFile.inputStream.use { input ->
+                    FileOutputStream(tempFile).use { output ->
+                        input.copyTo(output)
+                    }
+                }
+
+                val retriever = MediaMetadataRetriever()
+                retriever.setDataSource(tempFile.absolutePath)
+                val bitmap = retriever.getFrameAtTime(1000000, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                retriever.release()
+                tempFile.delete()
+
+                if (bitmap != null) {
+                    val stream = ByteArrayOutputStream()
+                    bitmap.compress(Bitmap.CompressFormat.JPEG, 80, stream)
+                    stream.toByteArray()
+                } else {
+                    null
+                }
+            } catch (e: Exception) {
+                Log.e("ThumbnailError", "Failed to get video thumbnail for $smbUrl", e)
+                null
+            }
+        } else {
+            getImageThumbnail(smbFile)
+        }
+    }
+
+
 
     private fun getImageThumbnail(smbFile: SmbFile): ByteArray? {
         try {
@@ -421,17 +484,32 @@ class MainActivity: FlutterActivity() {
     }
 
     private fun getVideoThumbnail(streamingUrl: String): ByteArray? {
+        var retriever: MediaMetadataRetriever? = null
         try {
-            val retriever = MediaMetadataRetriever()
+            retriever = MediaMetadataRetriever()
             retriever.setDataSource(streamingUrl, HashMap<String, String>())
-            val bitmap = retriever.getFrameAtTime(1000, MediaMetadataRetriever.OPTION_CLOSEST_SYNC) // 1 microsecond (first frame)
+
+            val durationMsStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+            val durationMs = durationMsStr?.toLongOrNull() ?: 0
             
-            val outputStream = ByteArrayOutputStream()
-            bitmap?.compress(Bitmap.CompressFormat.JPEG, 80, outputStream)
-            return outputStream.toByteArray()
+            val timeUs = if (durationMs > 0) (durationMs * 1000 * 0.15).toLong() else 1000L
+            
+            val bitmap = retriever.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+
+            if (bitmap != null) {
+                val outputStream = ByteArrayOutputStream()
+                bitmap.compress(Bitmap.CompressFormat.JPEG, 80, outputStream)
+                bitmap.recycle()
+                return outputStream.toByteArray()
+            } else {
+                Log.e("Thumbnail", "Failed to get frame from video: $streamingUrl")
+                return null
+            }
         } catch (e: Exception) {
-            e.printStackTrace()
+            Log.e("Thumbnail", "Error getting video thumbnail: ${e.message}", e)
             return null
+        } finally {
+            retriever?.release()
         }
     }
 
@@ -450,18 +528,25 @@ class MainActivity: FlutterActivity() {
     }
 
     inner class StreamingServer : NanoHTTPD(8080) {
-        private var smbFile: SmbFile? = null
+        private val smbFileMap = mutableMapOf<String, SmbFile>()
 
-        fun serveSmbFile(smbFile: SmbFile): String {
-            this.smbFile = smbFile
-            return "http://127.0.0.1:8080"
+        fun serveSmbFile(fileName: String, smbFile: SmbFile): String {
+            smbFileMap[fileName] = smbFile
+            return "http://1227.0.0.1:8080/$fileName"
         }
 
         override fun serve(session: IHTTPSession): Response {
+            val uri = session.uri
+            val fileName = uri.substring(1) // /fileName -> fileName
+            val smbFile = smbFileMap[fileName]
+
+            if (smbFile == null) {
+                return newFixedLengthResponse(Response.Status.NOT_FOUND, "text/plain", "File not found")
+            }
             val rangeHeader = session.headers["range"]
             var startByte: Long = 0
             var endByte: Long = -1
-            val totalLength = smbFile!!.length()
+            val totalLength = smbFile.length()
             val mimeType = "video/mp4" // または smbFile.contentType などから取得
 
             if (rangeHeader != null) {
@@ -475,7 +560,7 @@ class MainActivity: FlutterActivity() {
                 }
             }
 
-            val inputStream: InputStream = smbFile!!.inputStream
+            val inputStream: InputStream = smbFile.inputStream
             if (startByte > 0) {
                 inputStream.skip(startByte)
             }

@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import '../models/nas_server_model.dart';
 import '../services/nas_service.dart';
 import 'nas_server_edit_screen.dart';
-import 'nas_file_browser_screen.dart';
+import 'nas_share_list_screen.dart';
 
 class NasViewerScreen extends StatefulWidget {
   const NasViewerScreen({super.key});
@@ -64,11 +64,11 @@ class _NasViewerScreenState extends State<NasViewerScreen> {
                 subtitle: Text('${server.protocol.name.toUpperCase()} - ${server.host}'),
                 onTap: () {
                   Navigator.push(
-  context,
-  MaterialPageRoute(
-    builder: (context) => NasFileBrowserScreen(server: server),
-  ),
-);
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => NasShareListScreen(server: server),
+                    ),
+                  );
                 },
                 trailing: IconButton(
                   icon: const Icon(Icons.edit),

@@ -125,23 +125,36 @@ class _NasFileBrowserScreenState extends State<NasFileBrowserScreen> {
       }
     }
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(widget.server.nickname),
-      ),
-      body: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: const EdgeInsets.all(8.0),
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(children: pathWidgets),
+    return WillPopScope(
+      onWillPop: () async {
+        if (_currentPath.isNotEmpty) {
+          // 親ディレクトリのパスを計算
+          final segments = _currentPath.split('/').where((s) => s.isNotEmpty).toList();
+          segments.removeLast();
+          final parentPath = segments.join('/');
+          _listFiles(path: parentPath);
+          return false; // 通常の戻る動作を防ぐ
+        }
+        return true; // 通常の戻る動作を許可
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          title: Text(widget.server.nickname),
+        ),
+        body: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(8.0),
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(children: pathWidgets),
+              ),
             ),
-          ),
-          const Divider(),
-          Expanded(child: _buildBody()),
-        ],
+            const Divider(),
+            Expanded(child: _buildBody()),
+          ],
+        ),
       ),
     );
   }
@@ -177,8 +190,11 @@ class _NasFileBrowserScreenState extends State<NasFileBrowserScreen> {
         final file = _files[index];
         // nameから末尾のスラッシュを削除して表示
         final displayName = file.name.endsWith('/') ? file.name.substring(0, file.name.length - 1) : file.name;
-        return ListTile(
-          leading: Icon(file.isDirectory ? Icons.folder : Icons.insert_drive_file),
+        return Card(
+          margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+          child: ListTile(
+            tileColor: file.isDirectory ? Colors.amber.shade100 : Colors.transparent,
+          leading: _buildThumbnail(file),
           title: Text(displayName),
           onTap: () {
             if (file.isDirectory) {
@@ -187,7 +203,8 @@ class _NasFileBrowserScreenState extends State<NasFileBrowserScreen> {
               _openFile(file);
             }
           },
-        );
+        ),
+      );
       },
     );
   }
@@ -260,5 +277,64 @@ bool _isImageFile(String fileName) {
         ),
       );
     }
+  }
+
+  // --- サムネイル表示のためのウィジェットとロジック ---
+
+  Future<Uint8List?> _getThumbnailData(SmbNativeFile file) async {
+    try {
+      final arguments = {
+        'host': widget.server.host,
+        'port': widget.server.port,
+        'domain': 'WORKGROUP',
+        'username': widget.server.username,
+        'password': widget.server.password,
+        'shareName': widget.server.shareName,
+        'path': '$_currentPath/${file.name}',
+        'isVideo': _isVideoFile(file.name), // ネイティブ側で処理を分岐させるためのフラグ
+      };
+      // 'getThumbnail' メソッドをネイティブ側で実装する必要がある
+      final Uint8List? result = await platform.invokeMethod('getThumbnail', arguments);
+      return result;
+    } catch (e) {
+      // エラー処理（例: ログ出力）
+      print('サムネイルの取得に失敗しました: $e');
+      return null;
+    }
+  }
+
+  Widget _buildThumbnail(SmbNativeFile file) {
+    if (file.isDirectory) {
+      return const Icon(Icons.folder, size: 50);
+    }
+    
+    if (_isImageFile(file.name) || _isVideoFile(file.name)) {
+      return FutureBuilder<Uint8List?>(
+        future: _getThumbnailData(file),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.done && snapshot.hasData && snapshot.data != null) {
+            return SizedBox(
+              width: 80,
+              height: 80,
+              child: Image.memory(
+                snapshot.data!,
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) => const Icon(Icons.broken_image, size: 50),
+              ),
+            );
+          } else if (snapshot.hasError) {
+            return const Icon(Icons.error, size: 50);
+          } else {
+            return const SizedBox(
+              width: 80,
+              height: 80,
+              child: Center(child: CircularProgressIndicator()),
+            );
+          }
+        },
+      );
+    }
+    
+    return const Icon(Icons.insert_drive_file, size: 50);
   }
 }

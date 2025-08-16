@@ -188,7 +188,7 @@ class MainActivity: FlutterActivity() {
         // Rewind action
         actions.add(
             RemoteAction(
-                Icon.createWithResource(applicationContext, R.drawable.ic_rewind),
+                Icon.createWithResource(applicationContext, R.drawable.ic_replay_10),
                 "Rewind",
                 "Rewind 10 seconds",
                 PendingIntent.getBroadcast(
@@ -222,7 +222,7 @@ class MainActivity: FlutterActivity() {
         // Forward action
         actions.add(
             RemoteAction(
-                Icon.createWithResource(applicationContext, R.drawable.ic_forward),
+                Icon.createWithResource(applicationContext, R.drawable.ic_forward_10),
                 "Forward",
                 "Forward 10 seconds",
                 PendingIntent.getBroadcast(

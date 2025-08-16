@@ -3,7 +3,6 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:video_player/video_player.dart';
-import 'package:chewie/chewie.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:fujitake_app_new/screens/father_screen.dart';
@@ -37,7 +36,6 @@ class VideoViewerScreen extends StatefulWidget {
 class _VideoViewerScreenState extends State<VideoViewerScreen> {
   static const platform = MethodChannel('com.fujitake.nas/smb');
   late VideoPlayerController _videoPlayerController;
-  ChewieController? _chewieController;
   bool _isLoading = true;
   bool _isInPipMode = false;
   StringBuffer _logBuffer = StringBuffer();
@@ -100,12 +98,8 @@ class _VideoViewerScreenState extends State<VideoViewerScreen> {
       final streamingUrl = await _getStreamingUrl();
       _videoPlayerController = VideoPlayerController.network(streamingUrl);
       await _videoPlayerController.initialize();
-      _chewieController = ChewieController(
-        videoPlayerController: _videoPlayerController,
-        autoPlay: true,
-        looping: false,
-      );
-      _addLog('Video player initialized.');
+      _videoPlayerController.play();
+      _addLog('Video player initialized and playing.');
     } catch (e, s) {
       _addLog('Error initializing video player: $e\nStack trace: $s');
     } finally {
@@ -172,18 +166,19 @@ class _VideoViewerScreenState extends State<VideoViewerScreen> {
   @override
   void dispose() {
     _videoPlayerController.dispose();
-    _chewieController?.dispose();
     super.dispose();
   }
+
+  bool _showControls = true;
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
+      appBar: _isInPipMode ? null : AppBar(
         title: Text(widget.fileName),
         actions: [
           IconButton(
-            icon: const Icon(Icons.build_circle), //デバッグっぽいアイコンに変更
+            icon: const Icon(Icons.build_circle),
             onPressed: () {
               Navigator.push(
                 context,
@@ -209,41 +204,38 @@ class _VideoViewerScreenState extends State<VideoViewerScreen> {
                 ],
               ),
             )
-          : _chewieController != null &&
-                  _chewieController!.videoPlayerController.value.isInitialized
-              ? Stack(
-                  children: [
-                    Positioned.fill(
-                      child: GestureDetector(
-                        onDoubleTapDown: (details) {
-                          final screenWidth = MediaQuery.of(context).size.width;
-                          if (details.globalPosition.dx > screenWidth / 2) {
-                            _chewieController!.seekTo(
-                                _chewieController!.videoPlayerController.value.position +
-                                    const Duration(seconds: 10));
-                          } else {
-                            _chewieController!.seekTo(
-                                _chewieController!.videoPlayerController.value.position -
-                                    const Duration(seconds: 10));
-                          }
-                        },
-                        child: Chewie(controller: _chewieController!),
-                      ),
-                    ),
-                    if (!_isInPipMode)
-                      Positioned(
-                        top: 0,
-                        right: 0,
-                        child: SafeArea(
-                          child: IconButton(
-                            icon: const Icon(Icons.picture_in_picture_alt, color: Colors.white),
-                            onPressed: () async {
-                              await platform.invokeMethod('enterPictureInPictureMode');
-                            },
-                          ),
+          : _videoPlayerController.value.isInitialized
+              ? GestureDetector(
+                  onTap: () {
+                    setState(() {
+                      _showControls = !_showControls;
+                    });
+                  },
+                  child: Stack(
+                    alignment: Alignment.bottomCenter,
+                    children: [
+                      Center(
+                        child: AspectRatio(
+                          aspectRatio: _videoPlayerController.value.aspectRatio,
+                          child: VideoPlayer(_videoPlayerController),
                         ),
                       ),
-                  ],
+                      if (_showControls && !_isInPipMode) _buildControls(),
+                      if (!_isInPipMode)
+                        Positioned(
+                          top: 0,
+                          right: 0,
+                          child: SafeArea(
+                            child: IconButton(
+                              icon: const Icon(Icons.picture_in_picture_alt, color: Colors.white),
+                              onPressed: () async {
+                                await platform.invokeMethod('enterPictureInPictureMode');
+                              },
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
                 )
               : Center(
                   child: Padding(
@@ -253,6 +245,54 @@ class _VideoViewerScreenState extends State<VideoViewerScreen> {
                     ),
                   ),
                 ),
+    );
+  }
+
+  Widget _buildControls() {
+    return Container(
+      color: Colors.black.withOpacity(0.5),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          VideoProgressIndicator(
+            _videoPlayerController,
+            allowScrubbing: true,
+            padding: const EdgeInsets.symmetric(vertical: 8.0),
+          ),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              IconButton(
+                icon: const Icon(Icons.replay_10, color: Colors.white),
+                onPressed: () {
+                  final newPosition = _videoPlayerController.value.position - const Duration(seconds: 10);
+                  _videoPlayerController.seekTo(newPosition);
+                },
+              ),
+              IconButton(
+                icon: Icon(
+                  _videoPlayerController.value.isPlaying ? Icons.pause : Icons.play_arrow,
+                  color: Colors.white,
+                ),
+                onPressed: () {
+                  setState(() {
+                    _videoPlayerController.value.isPlaying
+                        ? _videoPlayerController.pause()
+                        : _videoPlayerController.play();
+                  });
+                },
+              ),
+              IconButton(
+                icon: const Icon(Icons.forward_10, color: Colors.white),
+                onPressed: () {
+                  final newPosition = _videoPlayerController.value.position + const Duration(seconds: 10);
+                  _videoPlayerController.seekTo(newPosition);
+                },
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 }

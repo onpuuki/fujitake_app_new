@@ -33,18 +33,29 @@ import androidx.localbroadcastmanager.content.LocalBroadcastManager
 import java.util.Properties
 import com.example.fujitake_app_new.R
 
-private const val ACTION_PIP_CONTROL = "pip_control"
-private const val ACTION_PIP_CONTROL_INTERNAL = "pip_control_internal"
-private const val EXTRA_CONTROL_TYPE = "control_type"
-private const val CONTROL_TYPE_PLAY_PAUSE = 1
-private const val CONTROL_TYPE_REWIND = 2
-private const val CONTROL_TYPE_FORWARD = 3
+
 
 class MainActivity: FlutterActivity() {
+    companion object {
+        const val ACTION_PIP_CONTROL = "pip_control"
+        const val ACTION_PIP_CONTROL_INTERNAL = "pip_control_internal"
+        const val EXTRA_CONTROL_TYPE = "control_type"
+        const val CONTROL_TYPE_PLAY_PAUSE = 1
+        const val CONTROL_TYPE_REWIND = 2
+        const val CONTROL_TYPE_FORWARD = 3
+    }
+
     private val CHANNEL = "com.fujitake.nas/smb"
     private var streamingServer: StreamingServer? = null
     private var methodChannel: MethodChannel? = null
     private var isPlaying = true
+
+    private fun sendPipLog(message: String) {
+        Log.d("PipDebug", message) // Logcatにもログを残す
+        activity.runOnUiThread {
+            methodChannel?.invokeMethod("onPipLog", message)
+        }
+    }
 
     private val pipControlReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -55,25 +66,28 @@ class MainActivity: FlutterActivity() {
             methodChannel?.invokeMethod("onPipLog", "Internal broadcast received: Control type $controlType")
 
             when (controlType) {
-                CONTROL_TYPE_PLAY_PAUSE -> {
+                MainActivity.CONTROL_TYPE_PLAY_PAUSE -> {
+                    sendPipLog("Play/Pause control received from PiP")
                     isPlaying = !isPlaying
+                    sendPipLog("isPlaying toggled to: $isPlaying")
                     methodChannel?.invokeMethod("onPipPlayPause", null)
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                         updatePictureInPictureParams()
                     }
                 }
-                CONTROL_TYPE_REWIND -> methodChannel?.invokeMethod("onPipRewind", null)
-                CONTROL_TYPE_FORWARD -> methodChannel?.invokeMethod("onPipForward", null)
+                MainActivity.CONTROL_TYPE_REWIND -> methodChannel?.invokeMethod("onPipRewind", null)
+                MainActivity.CONTROL_TYPE_FORWARD -> methodChannel?.invokeMethod("onPipForward", null)
             }
         }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        LocalBroadcastManager.getInstance(this).registerReceiver(
-            pipControlReceiver,
-            IntentFilter(ACTION_PIP_CONTROL_INTERNAL)
-        )
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(pipControlReceiver, IntentFilter(MainActivity.ACTION_PIP_CONTROL_INTERNAL), RECEIVER_NOT_EXPORTED)
+        } else {
+            registerReceiver(pipControlReceiver, IntentFilter(MainActivity.ACTION_PIP_CONTROL_INTERNAL))
+        }
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -147,6 +161,21 @@ class MainActivity: FlutterActivity() {
                         result.notImplemented()
                     }
                 }
+                "onPlaybackStateChanged" -> {
+                    val receivedIsPlaying = call.argument<Boolean>("isPlaying")
+                    sendPipLog("onPlaybackStateChanged received: isPlaying = $receivedIsPlaying")
+                    if (receivedIsPlaying != null) {
+                        if (isPlaying != receivedIsPlaying) {
+                            isPlaying = receivedIsPlaying
+                            sendPipLog("isPlaying state updated to: $isPlaying")
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && isInPictureInPictureMode) {
+                                sendPipLog("Calling updatePictureInPictureParams()")
+                                updatePictureInPictureParams()
+                            }
+                        }
+                    }
+                    result.success(null)
+                }
                 else -> result.notImplemented()
             }
         }
@@ -164,15 +193,18 @@ class MainActivity: FlutterActivity() {
                 "Rewind 10 seconds",
                 PendingIntent.getBroadcast(
                     applicationContext,
-                    CONTROL_TYPE_REWIND,
-                    Intent(applicationContext, PipControlReceiver::class.java).putExtra(EXTRA_CONTROL_TYPE, CONTROL_TYPE_REWIND),
-                    PendingIntent.FLAG_IMMUTABLE
+                    MainActivity.CONTROL_TYPE_REWIND,
+                    Intent(applicationContext, PipControlReceiver::class.java).setAction(MainActivity.ACTION_PIP_CONTROL).putExtra(MainActivity.EXTRA_CONTROL_TYPE, MainActivity.CONTROL_TYPE_REWIND),
+                    PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
                 )
             )
         )
 
         // Play/Pause action
+        sendPipLog("createPipActions called, isPlaying = $isPlaying")
         val playPauseIcon = if (isPlaying) R.drawable.ic_pause else R.drawable.ic_play
+        val playPauseRequestCode = if (isPlaying) MainActivity.CONTROL_TYPE_PLAY_PAUSE else MainActivity.CONTROL_TYPE_PLAY_PAUSE + 1
+
         actions.add(
             RemoteAction(
                 Icon.createWithResource(applicationContext, playPauseIcon),
@@ -180,9 +212,9 @@ class MainActivity: FlutterActivity() {
                 "Toggle play/pause",
                 PendingIntent.getBroadcast(
                     applicationContext,
-                    CONTROL_TYPE_PLAY_PAUSE,
-                    Intent(applicationContext, PipControlReceiver::class.java).putExtra(EXTRA_CONTROL_TYPE, CONTROL_TYPE_PLAY_PAUSE),
-                    PendingIntent.FLAG_IMMUTABLE
+                    playPauseRequestCode,
+                    Intent(applicationContext, PipControlReceiver::class.java).setAction(MainActivity.ACTION_PIP_CONTROL).putExtra(MainActivity.EXTRA_CONTROL_TYPE, MainActivity.CONTROL_TYPE_PLAY_PAUSE),
+                    PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
                 )
             )
         )
@@ -195,9 +227,9 @@ class MainActivity: FlutterActivity() {
                 "Forward 10 seconds",
                 PendingIntent.getBroadcast(
                     applicationContext,
-                    CONTROL_TYPE_FORWARD,
-                    Intent(applicationContext, PipControlReceiver::class.java).putExtra(EXTRA_CONTROL_TYPE, CONTROL_TYPE_FORWARD),
-                    PendingIntent.FLAG_IMMUTABLE
+                    MainActivity.CONTROL_TYPE_FORWARD,
+                    Intent(applicationContext, PipControlReceiver::class.java).setAction(MainActivity.ACTION_PIP_CONTROL).putExtra(MainActivity.EXTRA_CONTROL_TYPE, MainActivity.CONTROL_TYPE_FORWARD),
+                    PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
                 )
             )
         )
@@ -233,7 +265,7 @@ class MainActivity: FlutterActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
-        LocalBroadcastManager.getInstance(this).unregisterReceiver(pipControlReceiver)
+        unregisterReceiver(pipControlReceiver)
         streamingServer?.stop()
     }
 

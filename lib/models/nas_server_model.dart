@@ -10,6 +10,7 @@ class NasServer {
   final String host;
   final int? port;
   final int? httpPort; // Add this line for HTTP/HTTPS access
+  final String? domain; // Add this line for Domain
   final String? username;
   final String? password;
   final String? shareName; // For SMB
@@ -20,6 +21,7 @@ class NasServer {
     required this.protocol,
     required this.host,
     this.port,
+    this.domain,
     this.httpPort, // Initialize httpPort here
     this.username,
     this.password,
@@ -31,6 +33,7 @@ class NasServer {
     String? nickname,
     NasProtocol? protocol,
     String? host,
+    String? domain,
     int? port,
     int? httpPort,
     String? username,
@@ -42,6 +45,7 @@ class NasServer {
       nickname: nickname ?? this.nickname,
       protocol: protocol ?? this.protocol,
       host: host ?? this.host,
+      domain: domain ?? this.domain,
       port: port ?? this.port,
       httpPort: httpPort ?? this.httpPort,
       username: username ?? this.username,
@@ -56,6 +60,7 @@ class NasServer {
       'id': id,
       'nickname': nickname,
       'protocol': protocol.name,
+      'domain': domain,
       'host': host,
       'port': port,
       'httpPort': httpPort,
@@ -68,6 +73,7 @@ class NasServer {
   factory NasServer.fromJson(Map<String, dynamic> json) {
     return NasServer(
       id: json['id'],
+      domain: json['domain'],
       nickname: json['nickname'],
       protocol: NasProtocol.values.firstWhere((e) => e.name == json['protocol']),
       host: json['host'],

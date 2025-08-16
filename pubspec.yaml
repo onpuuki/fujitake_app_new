@@ -52,13 +52,15 @@ dependencies:
   # --- ここまで追加 ---
 
   # ★追加するパッケージ★
-  shared_preferences: ^2.2.2 # ユーザーIDの永続化用
+  shared_preferences: ^2.2.3 # ユーザーIDの永続化用
+  sqflite: ^2.3.3+1 # ローカルDB用
+
   
   logging: ^1.3.0
   video_player: ^2.10.0
   flutter_vlc_player: ^7.3.0
   chewie: ^1.12.1
-  path_provider: ^2.1.3
+  path_provider: ^2.1.3      # 既存のものを更新
   permission_handler: ^11.3.1
   share_plus: ^11.1.0
   video_thumbnail: ^0.5.3

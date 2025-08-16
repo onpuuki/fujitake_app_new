@@ -99,6 +99,10 @@ class _VideoViewerScreenState extends State<VideoViewerScreen> {
       _videoPlayerController = VideoPlayerController.network(streamingUrl);
       await _videoPlayerController.initialize();
       _videoPlayerController.play();
+      _videoPlayerController.addListener(() {
+        _addLog("Playback state changed: isPlaying = ${_videoPlayerController.value.isPlaying}");
+        platform.invokeMethod("onPlaybackStateChanged", {"isPlaying": _videoPlayerController.value.isPlaying});
+      });
       _addLog('Video player initialized and playing.');
     } catch (e, s) {
       _addLog('Error initializing video player: $e\nStack trace: $s');
@@ -229,6 +233,7 @@ class _VideoViewerScreenState extends State<VideoViewerScreen> {
                             child: IconButton(
                               icon: const Icon(Icons.picture_in_picture_alt, color: Colors.white),
                               onPressed: () async {
+                                await platform.invokeMethod("onPlaybackStateChanged", {"isPlaying": _videoPlayerController.value.isPlaying});
                                 await platform.invokeMethod('enterPictureInPictureMode');
                               },
                             ),

@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 
 class Prompt {
   final String? id;
+  final String title;
   final String text;
   final String? imageUrl;
   final Timestamp timestamp;
@@ -9,6 +10,7 @@ class Prompt {
 
   Prompt({
     this.id,
+    required this.title,
     required this.text,
     this.imageUrl,
     required this.timestamp,
@@ -19,6 +21,7 @@ class Prompt {
     Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
     return Prompt(
       id: doc.id,
+      title: data['title'] ?? '',
       text: data['text'] ?? '',
       imageUrl: data['imageUrl'],
       timestamp: data['timestamp'] ?? Timestamp.now(),
@@ -28,6 +31,7 @@ class Prompt {
 
   Map<String, dynamic> toFirestore() {
     return {
+      'title': title,
       'text': text,
       'imageUrl': imageUrl,
       'timestamp': timestamp,

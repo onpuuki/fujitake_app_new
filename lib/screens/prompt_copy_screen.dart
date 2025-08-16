@@ -20,6 +20,7 @@ class PromptCopyScreen extends StatefulWidget {
 
 class _PromptCopyScreenState extends State<PromptCopyScreen> {
   late final FirestoreService _firestoreService;
+  final TextEditingController _titleController = TextEditingController();
   final TextEditingController _textController = TextEditingController();
   final TextEditingController _tagController = TextEditingController();
   List<String> _selectedTags = [];
@@ -74,6 +75,7 @@ class _PromptCopyScreenState extends State<PromptCopyScreen> {
   }
 
   void _showAddPromptDialog({Prompt? prompt}) {
+    _titleController.text = prompt?.title ?? '';
     _textController.text = prompt?.text ?? '';
     _selectedTags = List<String>.from(prompt?.tags ?? []);
     _imageFile = null;
@@ -124,9 +126,13 @@ class _PromptCopyScreenState extends State<PromptCopyScreen> {
                         label: const Text('画像を添付'),
                       ),
                     TextField(
+                      controller: _titleController,
+                      decoration: const InputDecoration(labelText: 'タイトル'),
+                    ),
+                    TextField(
                       controller: _textController,
                       decoration: const InputDecoration(labelText: 'プロンプト'),
-                      maxLines: 5,
+                      maxLines: 10,
                     ),
                     const SizedBox(height: 16),
                     Wrap(
@@ -191,6 +197,7 @@ class _PromptCopyScreenState extends State<PromptCopyScreen> {
 
                 final newPrompt = Prompt(
                   id: prompt?.id,
+                  title: _titleController.text,
                   text: _textController.text,
                   imageUrl: imageUrl,
                   timestamp: prompt?.timestamp ?? Timestamp.now(),
@@ -303,7 +310,20 @@ class _PromptCopyScreenState extends State<PromptCopyScreen> {
                                 ),
                               ),
                             if (prompt.imageUrl != null) const SizedBox(height: 12),
-                            Text(prompt.text, style: const TextStyle(fontSize: 16.0)),
+                            Text(
+                              prompt.title,
+                              style: const TextStyle(
+                                fontSize: 18.0,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              prompt.text,
+                              style: const TextStyle(fontSize: 16.0),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
                             const Divider(),
                             Row(
                               children: [

@@ -64,7 +64,7 @@
 
         <receiver
             android:name=".PipControlReceiver"
-            android:exported="false">
+            android:exported="true">
             <intent-filter>
                 <action android:name="pip_control" />
             </intent-filter>

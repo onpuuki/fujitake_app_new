@@ -33,6 +33,14 @@ import androidx.localbroadcastmanager.content.LocalBroadcastManager
 import java.util.Properties
 import com.example.fujitake_app_new.R
 
+// For thumbnails
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.media.MediaMetadataRetriever
+import java.io.ByteArrayOutputStream
+import java.io.File
+import java.io.FileOutputStream
+
 
 
 class MainActivity: FlutterActivity() {
@@ -175,6 +183,34 @@ class MainActivity: FlutterActivity() {
                         }
                     }
                     result.success(null)
+                }
+                "getThumbnail" -> {
+                    val host = call.argument<String>("host")
+                    val port = call.argument<Int>("port")
+                    val domain = call.argument<String>("domain")
+                    val username = call.argument<String>("username")
+                    val password = call.argument<String>("password")
+                    val shareName = call.argument<String>("shareName")
+                    val path = call.argument<String>("path")
+                    val isVideo = call.argument<Boolean>("isVideo") ?: false
+
+                    if (host == null || shareName == null || path == null) {
+                        result.error("INVALID_ARGUMENTS", "Host, shareName, and path are required.", null)
+                        return@setMethodCallHandler
+                    }
+
+                    CoroutineScope(Dispatchers.IO).launch {
+                        try {
+                            val thumbnail = getThumbnail(host, port, domain, username, password, shareName, path, isVideo)
+                            withContext(Dispatchers.Main) {
+                                result.success(thumbnail)
+                            }
+                        } catch (e: Exception) {
+                            withContext(Dispatchers.Main) {
+                                result.error("THUMBNAIL_ERROR", e.message, e.toString())
+                            }
+                        }
+                    }
                 }
                 else -> result.notImplemented()
             }
@@ -323,6 +359,94 @@ class MainActivity: FlutterActivity() {
 
         val smbFile = SmbFile(smbUrl, auth)
         return streamingServer!!.serveSmbFile(smbFile)
+    }
+
+    private fun getThumbnail(host: String, port: Int?, domain: String?, user: String?, pass: String?, share: String, path: String, isVideo: Boolean): ByteArray? {
+        return if (isVideo) {
+            // For videos, get a streaming URL and retrieve the thumbnail remotely
+            val smbUrl = if (port != null) "smb://$host:$port/$share$path" else "smb://$host/$share$path"
+            val streamingUrl = startStreaming(host, port, domain, user, pass, smbUrl)
+            getVideoThumbnail(streamingUrl)
+        } else {
+            // For images, read the file directly
+            val smbUrl = if (port != null) "smb://$host:$port/$share$path" else "smb://$host/$share$path"
+            val smbFile = createSmbFile(smbUrl, domain, user, pass)
+            getImageThumbnail(smbFile)
+        }
+    }
+
+    // Helper to create SmbFile object
+    private fun createSmbFile(smbUrl: String, domain: String?, user: String?, pass: String?): SmbFile {
+        val prop = Properties().apply {
+            setProperty("jcifs.smb.client.ntlm.v2", "true")
+            setProperty("jcifs.smb.client.useNtlm2", "true")
+            setProperty("jcifs.smb.client.minVersion", "SMB202")
+            setProperty("jcifs.smb.client.maxVersion", "SMB311")
+            setProperty("jcifs.encoding", "UTF-8")
+        }
+        val bc = BaseContext(PropertyConfiguration(prop))
+        val auth: CIFSContext = if (user != null && pass != null && user.isNotEmpty()) {
+            bc.withCredentials(NtlmPasswordAuthentication(bc, domain, user, pass))
+        } else {
+            bc.withGuestCrendentials()
+        }
+        return SmbFile(smbUrl, auth)
+    }
+
+    private fun getImageThumbnail(smbFile: SmbFile): ByteArray? {
+        try {
+            val bytes = smbFile.inputStream.use { it.readBytes() }
+
+            // First, decode with inJustDecodeBounds=true to check dimensions
+            val options = BitmapFactory.Options().apply {
+                inJustDecodeBounds = true
+            }
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
+
+            // Calculate inSampleSize
+            options.inSampleSize = calculateInSampleSize(options, 150, 150)
+            options.inJustDecodeBounds = false
+            
+            // Decode bitmap with inSampleSize set
+            val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
+            val scaledBitmap = Bitmap.createScaledBitmap(bitmap!!, 150, 150, true)
+            
+            val outputStream = ByteArrayOutputStream()
+            scaledBitmap.compress(Bitmap.CompressFormat.JPEG, 80, outputStream)
+            return outputStream.toByteArray()
+        } catch (e: Exception) {
+            e.printStackTrace()
+            return null
+        }
+    }
+
+    private fun getVideoThumbnail(streamingUrl: String): ByteArray? {
+        try {
+            val retriever = MediaMetadataRetriever()
+            retriever.setDataSource(streamingUrl, HashMap<String, String>())
+            val bitmap = retriever.getFrameAtTime(1000, MediaMetadataRetriever.OPTION_CLOSEST_SYNC) // 1 microsecond (first frame)
+            
+            val outputStream = ByteArrayOutputStream()
+            bitmap?.compress(Bitmap.CompressFormat.JPEG, 80, outputStream)
+            return outputStream.toByteArray()
+        } catch (e: Exception) {
+            e.printStackTrace()
+            return null
+        }
+    }
+
+    private fun calculateInSampleSize(options: BitmapFactory.Options, reqWidth: Int, reqHeight: Int): Int {
+        val (height: Int, width: Int) = options.run { outHeight to outWidth }
+        var inSampleSize = 1
+
+        if (height > reqHeight || width > reqWidth) {
+            val halfHeight: Int = height / 2
+            val halfWidth: Int = width / 2
+            while (halfHeight / inSampleSize >= reqHeight && halfWidth / inSampleSize >= reqWidth) {
+                inSampleSize *= 2
+            }
+        }
+        return inSampleSize
     }
 
     inner class StreamingServer : NanoHTTPD(8080) {

@@ -23,7 +23,7 @@ class _NasServerEditScreenState extends State<NasServerEditScreen> {
   int? _port;
   String? _username;
   String? _password;
-  String? _shareName;
+
 
   @override
   void initState() {
@@ -34,7 +34,7 @@ class _NasServerEditScreenState extends State<NasServerEditScreen> {
     _port = widget.server?.port;
     _username = widget.server?.username;
     _password = widget.server?.password;
-    _shareName = widget.server?.shareName;
+
   }
 
   void _saveServer() async {
@@ -48,7 +48,7 @@ class _NasServerEditScreenState extends State<NasServerEditScreen> {
         port: _port,
         username: _username,
         password: _password,
-        shareName: _shareName,
+        shareName: widget.server?.shareName, // Keep existing shareName if any
       );
 
       if (widget.server == null) {
@@ -111,12 +111,7 @@ class _NasServerEditScreenState extends State<NasServerEditScreen> {
               keyboardType: TextInputType.number,
               onSaved: (value) => _port = int.tryParse(value!),
             ),
-            if (_protocol == NasProtocol.smb)
-              TextFormField(
-                initialValue: _shareName,
-                decoration: const InputDecoration(labelText: '共有名（SMB）'),
-                onSaved: (value) => _shareName = value,
-              ),
+
             TextFormField(
               initialValue: _username,
               decoration: const InputDecoration(labelText: 'ユーザー名（任意）'),

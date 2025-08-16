@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:fujitake_app_new/services/cache_service.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -32,14 +33,18 @@ void main() async {
     final firestoreService = FirestoreService();
     await firestoreService.initializeUserId(); 
 
+    // CacheServiceのデータベースを初期化する
+    await CacheService.instance.database;
+    print('Cache database initialized successfully.');
+
   } catch (e) {
-    print('Firebase initialization or authentication failed: $e');
+    print('Initialization failed: $e');
     runApp(
       MaterialApp(
         home: Scaffold(
-          appBar: AppBar(title: const Text('Firebaseエラー')),
+          appBar: AppBar(title: const Text('初期化エラー')),
           body: Center(
-            child: Text('Firebaseの初期化または認証に失敗しました。\nエラー: $e', textAlign: TextAlign.center,),
+            child: Text('アプリの初期化に失敗しました。\nエラー: $e', textAlign: TextAlign.center,),
           ),
         ),
       ),

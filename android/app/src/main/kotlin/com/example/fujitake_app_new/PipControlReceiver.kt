@@ -4,19 +4,19 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.util.Log
-import androidx.localbroadcastmanager.content.LocalBroadcastManager
-
-private const val ACTION_PIP_CONTROL_INTERNAL = "pip_control_internal"
 
 class PipControlReceiver : BroadcastReceiver() {
-    override fun onReceive(context: Context?, intent: Intent?) {
-        if (context == null || intent == null) return
+    override fun onReceive(context: Context, intent: Intent) {
+        if (intent.action != MainActivity.ACTION_PIP_CONTROL) {
+            return
+        }
+        val controlType = intent.getIntExtra(MainActivity.EXTRA_CONTROL_TYPE, 0)
+        Log.d("PipDebug", "PipControlReceiver received control type: $controlType")
 
-        Log.d("PipControlReceiver", "External broadcast received: ${intent.action}")
-
-        // 外部からのブロードキャストを内部的なブロードキャストに変換して再送信
-        val internalIntent = Intent(ACTION_PIP_CONTROL_INTERNAL)
-        internalIntent.putExtras(intent.extras ?: return) // 元のインテントの情報を引き継ぐ
-        LocalBroadcastManager.getInstance(context).sendBroadcast(internalIntent)
+        // 内部ブロードキャストに変換してMainActivityに送信
+        val internalIntent = Intent(MainActivity.ACTION_PIP_CONTROL_INTERNAL)
+        internalIntent.putExtra(MainActivity.EXTRA_CONTROL_TYPE, controlType)
+        internalIntent.setPackage(context.packageName)
+        context.sendBroadcast(internalIntent)
     }
 }

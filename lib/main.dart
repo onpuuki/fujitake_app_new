@@ -7,21 +7,26 @@ import 'firebase_options.dart';
 import 'package:fujitake_app_new/screens/top_screen.dart';
 import 'package:fujitake_app_new/screens/login_screen.dart';
 import 'package:fujitake_app_new/services/firestore_service.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'dart:convert';
 
-// json.decode を使用するためにインポートが必要
-import 'dart:convert'; // ★この行をファイルの先頭に移動しました★
-
+// Foreground Task Imports
+import 'package:flutter_foreground_task/flutter_foreground_task.dart';
+import 'services/foreground_task_handler.dart';
 
 // Firebase設定をCanvas環境から取得
-// __firebase_config が提供されない場合のデフォルト値（開発用）
-// このエラーを回避するため、APIキーを直接指定します
 const String _firebaseConfigString = String.fromEnvironment(
   'FIREBASE_CONFIG',
-  defaultValue: '{}', // デフォルトは空のJSON文字列
+  defaultValue: '{}',
 );
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  sqfliteFfiInit();
+  databaseFactory = databaseFactoryFfi;
+
+  // Initialize Foreground Task
+  await _initForegroundTask();
 
   try {
     await Firebase.initializeApp(
@@ -52,7 +57,41 @@ void main() async {
     return;
   }
 
-  runApp(const MyApp());
+  runApp(
+    WithForegroundTask(
+      child: const MyApp(),
+    ),
+  );
+}
+
+// Foreground Task Initialization
+Future<void> _initForegroundTask() async {
+  FlutterForegroundTask.init(
+    androidNotificationOptions: AndroidNotificationOptions(
+      channelId: 'fujitake_cache_downloader',
+      channelName: 'Cache Download Service',
+      channelDescription: 'This notification appears when downloading cache files.',
+      channelImportance: NotificationChannelImportance.LOW,
+      priority: NotificationPriority.LOW,
+      iconData: const NotificationIconData(
+        resType: ResourceType.mipmap,
+        resPrefix: ResourcePrefix.ic,
+        name: 'launcher',
+      ),
+      buttons: [
+        const NotificationButton(id: 'stopButton', text: 'Stop'),
+      ],
+    ),
+    iosNotificationOptions: const IOSNotificationOptions(
+      // iOS settings are not used, but required
+    ),
+    foregroundTaskOptions: const ForegroundTaskOptions(
+      interval: 5000, // 5 seconds
+      isOnceEvent: false,
+      autoRunOnBoot: false,
+      allowWifiLock: true,
+    ),
+  );
 }
 
 class MyApp extends StatelessWidget {

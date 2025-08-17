@@ -7,7 +7,11 @@ import '../models/nas_server_model.dart';
 import 'image_viewer_screen.dart';
 import 'cache_management_screen.dart';
 import 'video_viewer_screen.dart';
+import '../models/cache_job_model.dart';
+import '../services/database_service.dart';
+import '../services/cache_downloader_service.dart';
 
+import 'package:flutter_foreground_task/flutter_foreground_task';
 // ネイティブから受け取るファイル情報を表すクラス
 class SmbNativeFile {
   final String name;
@@ -15,6 +19,7 @@ class SmbNativeFile {
   final int size;
   final int lastModified;
 
+import 'package:flutter_foreground_task/flutter_foreground_task';
   SmbNativeFile({
     required this.name,
     required this.isDirectory,
@@ -51,6 +56,7 @@ class _NasFileBrowserScreenState extends State<NasFileBrowserScreen> {
   String _currentPath = ''; // ルートを空文字で表現
   String? _error;
 
+  final CacheDownloaderService _cacheDownloaderService = CacheDownloaderService.instance;
   @override
   void initState() {
     super.initState();
@@ -320,7 +326,7 @@ class _NasFileBrowserScreenState extends State<NasFileBrowserScreen> {
             _sourcePathForMove = _currentPath;
           });
         } else if (value == 'cache') {
-          // TODO: Implement cache action
+          _showCacheOptionsDialog(file);
         }
       },
       itemBuilder: (BuildContext context) {
@@ -333,10 +339,11 @@ class _NasFileBrowserScreenState extends State<NasFileBrowserScreen> {
             value: 'delete',
             child: Text('削除'),
           ),
-          const PopupMenuItem<String>(
-            value: 'cache',
-            child: Text('キャッシュ'),
-          ),
+          if (file.isDirectory)
+            const PopupMenuItem<String>(
+              value: 'cache',
+              child: Text('キャッシュ'),
+            ),
         ];
       },
     );
@@ -366,6 +373,88 @@ class _NasFileBrowserScreenState extends State<NasFileBrowserScreen> {
     if (confirmed == true) {
       _deleteFile(file);
     }
+
+  void _showCacheOptionsDialog(SmbNativeFile directory) {
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: Text('${directory.name} をキャッシュします'),
+          content: const Text('キャッシュする範囲を選択してください。'),
+          actions: [
+            TextButton(
+              child: const Text('このフォルダのみ'),
+              onPressed: () {
+                Navigator.of(context).pop();
+                // TODO: このフォルダのみキャッシュする処理を呼び出す
+                _startCaching(directory, recursive: false);
+              },
+            ),
+            TextButton(
+              child: const Text('サブフォルダもすべて'),
+              onPressed: () {
+                Navigator.of(context).pop();
+                // TODO: 再帰的にキャッシュする処理を呼び出す
+                _startCaching(directory, recursive: true);
+              },
+            ),
+            TextButton(
+              child: const Text('キャンセル'),
+              onPressed: () => Navigator.of(context).pop(),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _startCaching(SmbNativeFile directory, {required bool recursive}) async {
+    final path = p.join(_currentPath, directory.name);
+    try {
+      await _cacheDownloaderService.addJob(widget.server.id, path, recursive: recursive);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('${directory.name} のキャッシュ要求を追加しました。'),
+          backgroundColor: Colors.green,
+        ),
+      );
+      await _startForegroundService();
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('キャッシュ要求の追加に失敗しました: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  // フォアグラウンドサービスを開始するヘルパーメソッド
+  Future<void> _startForegroundService() async {
+    // 権限を要求
+    if (!await FlutterForegroundTask.isSystemAlertWindowGranted()) {
+      await FlutterForegroundTask.openSystemAlertWindowSettings();
+    }
+    if (!await FlutterForegroundTask.canDrawOverlays) {
+       // Note: openSystemAlertWindowSettings() does not return a value.
+       // You may need to check the permission status again after returning from the settings screen.
+    }
+     if (!await FlutterForegroundTask.isIgnoringBatteryOptimizations) {
+      await FlutterForegroundTask.requestIgnoreBatteryOptimization();
+    }
+
+    final ReceivePort? receivePort = FlutterForegroundTask.receivePort;
+    final bool isRunning = await FlutterForegroundTask.isRunningService;
+    
+    if (!isRunning) {
+      FlutterForegroundTask.startService(
+        notificationTitle: 'キャッシュダウンロード',
+        notificationText: '準備中...',
+        callback: foregroundTaskCallback,
+      );
+    }
+  }
+
   }
 
   Future<void> _deleteFile(SmbNativeFile file) async {
@@ -516,10 +605,23 @@ class _NasFileBrowserScreenState extends State<NasFileBrowserScreen> {
     showDialog(
       context: context,
       builder: (context) {
+
+  @override
+  void dispose() {
+    CacheDownloaderService.instance.stop();
+    super.dispose();
+  }
+
         bool includeSubfolders = true; // デフォルトはサブフォルダも含む
         return StatefulBuilder(
           builder: (context, setState) {
             return AlertDialog(
+
+
+
+
+
+
               title: Text('キャッシュ設定: ${directory.name}'),
               content: Column(
                 mainAxisSize: MainAxisSize.min,

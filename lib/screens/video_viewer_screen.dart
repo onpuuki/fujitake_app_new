@@ -29,8 +29,10 @@ class _VideoViewerScreenState extends State<VideoViewerScreen> {
   String? _error;
   bool _showControls = true;
   bool _isInPipMode = false;
+  Timer? _controlsTimer;
 
   final MethodChannel _smbChannel = const MethodChannel('com.example.fujitake_app_new/smb');
+
   @override
   void initState() {
     super.initState();
@@ -42,12 +44,14 @@ class _VideoViewerScreenState extends State<VideoViewerScreen> {
     switch (call.method) {
       case 'onPipModeChanged':
         final bool isInPip = call.arguments as bool;
-        setState(() {
-          _isInPipMode = isInPip;
-          if (!isInPip) {
-            _showControls = true; // PiPから戻ったらコントロールを再表示
-          }
-        });
+        if (_isInPipMode != isInPip) {
+          setState(() {
+            _isInPipMode = isInPip;
+            if (!isInPip) {
+              _showControls = true;
+            }
+          });
+        }
         break;
       case 'onPipPlayPause':
         _togglePlaying();
@@ -63,48 +67,20 @@ class _VideoViewerScreenState extends State<VideoViewerScreen> {
 
   Future<void> _initializePlayer() async {
     try {
-      VideoPlayerController controller;
-      File? localFile = widget.localPath != null ? File(widget.localPath!) : null;
-      bool localFileExists = await localFile?.exists() ?? false;
-
-      if (localFileExists) {
-        controller = VideoPlayerController.file(localFile!);
+      final String? streamingUrl = await _getStreamingUrl();
+      if (streamingUrl != null && streamingUrl.isNotEmpty) {
+        final controller = VideoPlayerController.networkUrl(Uri.parse(streamingUrl));
+        await controller.initialize();
+        await controller.play();
+        if (mounted) {
+          setState(() {
+            _controller = controller;
+            _isLoading = false;
+          });
+        }
       } else {
-        if (widget.localPath != null) {
-        }
-        
-        final smbUrl = 'smb://${widget.server.host}${widget.server.shareName != null ? '/${widget.server.shareName}' : ''}/${widget.videoPath}';
-
-        final String? streamingUrl = await MethodChannel('com.example.fujitake_app_new/smb').invokeMethod('startStreaming', {
-          'smbUrl': smbUrl,
-          'host': widget.server.host,
-          'shareName': widget.server.shareName,
-          'username': widget.server.username,
-  'password': widget.server.password,
-          'path': widget.videoPath,
-          'fileName': p.basename(widget.videoPath),
-          'domain': widget.server.domain,
-        });
-
-
-        if (streamingUrl != null && streamingUrl.isNotEmpty) {
-          controller = VideoPlayerController.networkUrl(Uri.parse(streamingUrl));
-        } else {
-          throw Exception('ストリーミングURLの取得に失敗しました。');
-        }
+        throw Exception('ストリーミングURLの取得に失敗しました。');
       }
-
-      await controller.initialize();
-      
-      await controller.play();
-      
-      if (mounted) {
-        setState(() {
-          _controller = controller;
-          _isLoading = false;
-        });
-      }
-
     } catch (e, s) {
       if (mounted) {
         setState(() {
@@ -115,57 +91,208 @@ class _VideoViewerScreenState extends State<VideoViewerScreen> {
     }
   }
 
+  Future<String?> _getStreamingUrl() async {
+    File? localFile = widget.localPath != null ? File(widget.localPath!) : null;
+    bool localFileExists = await localFile?.exists() ?? false;
+    if (localFileExists) {
+      // ローカルファイルの場合はストリーミングサーバーを起動する必要があるかもしれません。
+      // 現在の実装ではネットワークURLを期待しているため、一旦smbからのストリーミングに倒します。
+    }
+
+    final smbUrl = 'smb://${widget.server.host}${widget.server.shareName != null ? '/${widget.server.shareName}' : ''}/${widget.videoPath}';
+    return _smbChannel.invokeMethod<String>('startStreaming', {
+      'smbUrl': smbUrl,
+      'host': widget.server.host,
+      'shareName': widget.server.shareName,
+      'username': widget.server.username,
+      'password': widget.server.password,
+      'path': widget.videoPath,
+      'fileName': p.basename(widget.videoPath),
+      'domain': widget.server.domain,
+    });
+  }
+
   @override
   void dispose() {
+    _controlsTimer?.cancel();
     _smbChannel.invokeMethod('stopStreaming', {'fileName': p.basename(widget.videoPath)});
     _controller?.dispose();
+    SystemChrome.setPreferredOrientations([
+      DeviceOrientation.portraitUp,
+      DeviceOrientation.portraitDown,
+    ]);
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     super.dispose();
   }
-  
+
   void _toggleControls() {
-    setState(() {
-      _showControls = !_showControls;
+    if (!_isInPipMode) {
+      setState(() {
+        _showControls = !_showControls;
+      });
+      if (_showControls) {
+        _startControlsTimer();
+      }
+    }
+  }
+
+  void _startControlsTimer() {
+    _controlsTimer?.cancel();
+    _controlsTimer = Timer(const Duration(seconds: 3), () {
+      if (!_isInPipMode && mounted) {
+        setState(() {
+          _showControls = false;
+        });
+      }
     });
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: _showControls ? AppBar(
-        title: Text(p.basename(widget.videoPath)),
-      ) : null,
+      appBar: _isInPipMode || (MediaQuery.of(context).orientation == Orientation.landscape && !_showControls)
+          ? null
+          : AppBar(title: Text(p.basename(widget.videoPath))),
       backgroundColor: Colors.black,
-      body: GestureDetector(
-        onTap: () {
-          if (_isInPipMode) return;
-          setState(() {
-            _showControls = !_showControls;
-          });
-        },
-        child: _buildPlayer(),
+      body: SafeArea(
+        child: _isLoading
+            ? const Center(child: CircularProgressIndicator())
+            : _error != null
+                ? Center(child: Text(_error!, style: const TextStyle(color: Colors.white)))
+                : OrientationBuilder(
+                    builder: (context, orientation) {
+                      return orientation == Orientation.portrait
+                          ? _buildPortraitLayout()
+                          : _buildLandscapeLayout();
+                    },
+                  ),
       ),
     );
   }
 
-  Widget _buildControls() {
-    return AnimatedOpacity(
-      opacity: _showControls ? 1.0 : 0.0,
-      duration: const Duration(milliseconds: 300),
+  Widget _buildPortraitLayout() {
+    return Column(
+      children: [
+        Expanded(
+          child: GestureDetector(
+            onTap: _toggleControls,
+            child: Center(
+              child: AspectRatio(
+                aspectRatio: _controller!.value.aspectRatio,
+                child: VideoPlayer(_controller!),
+              ),
+            ),
+          ),
+        ),
+        _buildControls(isPortrait: true),
+      ],
+    );
+  }
+
+  Widget _buildLandscapeLayout() {
+    return GestureDetector(
+      onTap: _toggleControls,
       child: Stack(
+        alignment: Alignment.center,
         children: [
-          // Background Gradient
+          Center(
+            child: AspectRatio(
+              aspectRatio: _controller!.value.aspectRatio,
+              child: VideoPlayer(_controller!),
+            ),
+          ),
+          AnimatedOpacity(
+            opacity: _showControls ? 1.0 : 0.0,
+            duration: const Duration(milliseconds: 300),
+            child: _buildControls(isPortrait: false),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildControls({required bool isPortrait}) {
+    if (isPortrait) {
+      // 縦画面用のコントロール
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              children: [
+                ValueListenableBuilder(
+                  valueListenable: _controller!,
+                  builder: (context, VideoPlayerValue value, child) =>
+                      Text(_formatDuration(value.position)),
+                ),
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 12.0),
+                    child: VideoProgressIndicator(
+                      _controller!,
+                      allowScrubbing: true,
+                    ),
+                  ),
+                ),
+                Text(_formatDuration(_controller!.value.duration)),
+              ],
+            ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                // 左下のPiPアイコン
+                IconButton(
+                  icon: const Icon(Icons.picture_in_picture_alt),
+                  onPressed: _togglePip,
+                ),
+                // 中央の再生コントロール
+                Row(
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.replay_10),
+                      iconSize: 32,
+                      onPressed: () => _seekRelative(const Duration(seconds: -10)),
+                    ),
+                    const SizedBox(width: 16),
+                    IconButton(
+                      icon: Icon(_controller!.value.isPlaying ? Icons.pause_circle_outline : Icons.play_circle_outline),
+                      iconSize: 48,
+                      onPressed: _togglePlaying,
+                    ),
+                    const SizedBox(width: 16),
+                    IconButton(
+                      icon: const Icon(Icons.forward_10),
+                      iconSize: 32,
+                      onPressed: () => _seekRelative(const Duration(seconds: 10)),
+                    ),
+                  ],
+                ),
+                // 右下の全画面アイコン
+                IconButton(
+                  icon: const Icon(Icons.fullscreen),
+                  onPressed: _toggleFullScreen,
+                ),
+              ],
+            ),
+          ],
+        ),
+      );
+    } else {
+      // 横画面用のオーバーレイコントロール
+      return Stack(
+        children: [
           Positioned.fill(
             child: Container(
-              decoration: const BoxDecoration(
+              decoration: BoxDecoration(
                 gradient: LinearGradient(
-                  colors: [Colors.black54, Colors.transparent, Colors.black54],
+                  colors: [Colors.black.withOpacity(0.6), Colors.transparent, Colors.black.withOpacity(0.6)],
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
                 ),
               ),
             ),
           ),
-          // Center Controls
           Center(
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
@@ -191,68 +318,46 @@ class _VideoViewerScreenState extends State<VideoViewerScreen> {
               ],
             ),
           ),
-          // Bottom Controls
           Positioned(
             left: 16,
             right: 16,
             bottom: 16,
-            child: Column(
+            child: Row(
               children: [
-                Row(
-                  children: [
-                    ValueListenableBuilder<VideoPlayerValue>(
-                      valueListenable: _controller!,
-                      builder: (context, value, child) {
-                        return Text(
-                          _formatDuration(value.position),
-                          style: const TextStyle(color: Colors.white),
-                        );
-                      },
-                    ),
-                    Expanded(
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 8.0),
-                        child: VideoProgressIndicator(
-                          _controller!,
-                          allowScrubbing: true,
-                          colors: const VideoProgressColors(
-                            playedColor: Colors.red,
-                            bufferedColor: Colors.white60,
-                            backgroundColor: Colors.white30,
-                          ),
-                        ),
+                ValueListenableBuilder(
+                  valueListenable: _controller!,
+                  builder: (context, VideoPlayerValue value, child) =>
+                      Text(_formatDuration(value.position), style: const TextStyle(color: Colors.white)),
+                ),
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 8.0),
+                    child: VideoProgressIndicator(
+                      _controller!,
+                      allowScrubbing: true,
+                      colors: const VideoProgressColors(
+                        playedColor: Colors.red,
+                        bufferedColor: Colors.white60,
+                        backgroundColor: Colors.white30,
                       ),
                     ),
-                    ValueListenableBuilder<VideoPlayerValue>(
-                      valueListenable: _controller!,
-                      builder: (context, value, child) {
-                        return Text(
-                          _formatDuration(value.duration),
-                          style: const TextStyle(color: Colors.white),
-                        );
-                      },
-                    ),
-                  ],
+                  ),
                 ),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: [
-                    IconButton(
-                      icon: const Icon(Icons.picture_in_picture_alt, color: Colors.white),
-                      onPressed: _togglePip,
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.fullscreen, color: Colors.white),
-                      onPressed: _toggleFullScreen,
-                    ),
-                  ],
+                Text(_formatDuration(_controller!.value.duration), style: const TextStyle(color: Colors.white)),
+                IconButton(
+                  icon: const Icon(Icons.picture_in_picture_alt, color: Colors.white),
+                  onPressed: _togglePip,
+                ),
+                IconButton(
+                  icon: const Icon(Icons.fullscreen_exit, color: Colors.white),
+                  onPressed: _toggleFullScreen,
                 ),
               ],
             ),
           ),
         ],
-      ),
-    );
+      );
+    }
   }
 
   String _formatDuration(Duration duration) {
@@ -269,6 +374,7 @@ class _VideoViewerScreenState extends State<VideoViewerScreen> {
         _controller!.pause();
       } else {
         _controller!.play();
+        _startControlsTimer();
       }
     });
   }
@@ -285,14 +391,13 @@ class _VideoViewerScreenState extends State<VideoViewerScreen> {
     if (_controller != null && _controller!.value.isPlaying) {
       setState(() {
         _showControls = false;
-        _isInPipMode = true;
       });
       try {
         await _smbChannel.invokeMethod('enterPictureInPictureMode');
       } on PlatformException catch (e) {
         print("Error entering PiP mode: ${e.message}");
+        // エラーが発生した場合、状態を元に戻す
         setState(() {
-          _isInPipMode = false; // エラー時は状態を元に戻す
           _showControls = true;
         });
       }
@@ -300,50 +405,20 @@ class _VideoViewerScreenState extends State<VideoViewerScreen> {
   }
 
   void _toggleFullScreen() {
-    setState(() {
-      if (MediaQuery.of(context).orientation == Orientation.portrait) {
-        SystemChrome.setPreferredOrientations([
-          DeviceOrientation.landscapeRight,
-          DeviceOrientation.landscapeLeft,
-        ]);
-        SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-      } else {
-        SystemChrome.setPreferredOrientations([
-          DeviceOrientation.portraitUp,
-          DeviceOrientation.portraitDown,
-        ]);
-        SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
-      }
-    });
-  }
-  
-  Widget _buildPlayer() {
-     if (_isLoading) {
-      return const Center(child: CircularProgressIndicator());
+    final isPortrait = MediaQuery.of(context).orientation == Orientation.portrait;
+    if (isPortrait) {
+      SystemChrome.setPreferredOrientations([
+        DeviceOrientation.landscapeRight,
+        DeviceOrientation.landscapeLeft,
+      ]);
+      SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+    } else {
+      SystemChrome.setPreferredOrientations([
+        DeviceOrientation.portraitUp,
+        DeviceOrientation.portraitDown,
+      ]);
+      SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     }
-    if (_error != null) {
-      return SingleChildScrollView(
-        child: Padding(
-          padding: const EdgeInsets.all(8.0),
-          child: Text(_error!, style: const TextStyle(color: Colors.white)),
-        ),
-      );
-    }
-    if (_controller == null || !_controller!.value.isInitialized) {
-      return const Center(child: Text("コントローラーが初期化されていません", style: TextStyle(color: Colors.white)));
-    }
-    
-    return Center(
-      child: AspectRatio(
-        aspectRatio: _controller!.value.aspectRatio,
-        child: Stack(
-          alignment: Alignment.bottomCenter,
-          children: <Widget>[
-            VideoPlayer(_controller!),
-            Positioned.fill(child: _buildControls()),
-          ],
-        ),
-      ),
-    );
   }
 }
+

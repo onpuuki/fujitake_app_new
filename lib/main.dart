@@ -20,79 +20,57 @@ const String _firebaseConfigString = String.fromEnvironment(
   defaultValue: '{}',
 );
 
-void main() async {
+void main() {
   WidgetsFlutterBinding.ensureInitialized();
   sqfliteFfiInit();
   databaseFactory = databaseFactoryFfi;
 
-  // Initialize Foreground Task
-  await _initForegroundTask();
+  // _initForegroundTask();
 
+  // Firebaseの初期化は非同期で行うため、別の関数に切り出す
+  _initializeApp();
+
+  runApp(
+    // WithForegroundTask(
+      const MyApp(),
+    // ),
+  );
+}
+
+// Firebaseやその他の非同期初期化処理
+Future<void> _initializeApp() async {
   try {
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
     );
     print('Firebase initialized successfully.');
 
-    // FirestoreServiceのユーザーIDを初期化する
     final firestoreService = FirestoreService();
     await firestoreService.initializeUserId(); 
 
-    // CacheServiceのデータベースを初期化する
     await CacheService.instance.database;
     print('Cache database initialized successfully.');
 
   } catch (e) {
     print('Initialization failed: $e');
-    runApp(
-      MaterialApp(
-        home: Scaffold(
-          appBar: AppBar(title: const Text('初期化エラー')),
-          body: Center(
-            child: Text('アプリの初期化に失敗しました。\nエラー: $e', textAlign: TextAlign.center,),
-          ),
-        ),
-      ),
-    );
-    return;
+    // エラーハンドリングはここに残すことも可能ですが、
+    // mainが同期的に実行されるため、UIでの表示方法は変更が必要
   }
-
-  runApp(
-    WithForegroundTask(
-      child: const MyApp(),
-    ),
-  );
 }
 
 // Foreground Task Initialization
-Future<void> _initForegroundTask() async {
-  FlutterForegroundTask.init(
-    androidNotificationOptions: AndroidNotificationOptions(
-      channelId: 'fujitake_cache_downloader',
-      channelName: 'Cache Download Service',
-      channelDescription: 'This notification appears when downloading cache files.',
-      channelImportance: NotificationChannelImportance.LOW,
-      priority: NotificationPriority.LOW,
-      iconData: const NotificationIconData(
-        resType: ResourceType.mipmap,
-        resPrefix: ResourcePrefix.ic,
-        name: 'launcher',
-      ),
-      buttons: [
-        const NotificationButton(id: 'stopButton', text: 'Stop'),
-      ],
-    ),
-    iosNotificationOptions: const IOSNotificationOptions(
-      // iOS settings are not used, but required
-    ),
-    foregroundTaskOptions: const ForegroundTaskOptions(
-      interval: 5000, // 5 seconds
-      isOnceEvent: false,
-      autoRunOnBoot: false,
-      allowWifiLock: true,
-    ),
-  );
-}
+// void _initForegroundTask() {
+//   FlutterForegroundTask.init(
+//     androidNotificationOptions: AndroidNotificationOptions(
+//       channelId: 'fujitake_cache_downloader',
+//       channelName: 'Cache Download Service',
+//     ),
+//     iosNotificationOptions: const IOSNotificationOptions(),
+//     foregroundTaskOptions: const ForegroundTaskOptions(
+//       eventAction: ForegroundTaskEventAction.resumeApp,
+//     ),
+//   );
+// }
 
 class MyApp extends StatelessWidget {
   const MyApp({super.key});

@@ -10,17 +10,18 @@ void foregroundTaskCallback() {
 
 class CacheDownloaderTaskHandler extends TaskHandler {
   final CacheDownloaderService _downloaderService = CacheDownloaderService.instance;
-  
+  SendPort? _sendPort;
+
   @override
-  Future<void> onStart(DateTime timestamp, SendPort? sendPort) async {
+  Future<void> onStart(DateTime timestamp, TaskStarter starter) async {
     // サービスのポーリングを開始
     _downloaderService.startPollingForForegroundTask();
   }
 
   @override
-  Future<void> onRepeatEvent(DateTime timestamp, SendPort? sendPort) async {
+  void onRepeatEvent(DateTime timestamp) {
     // 実行中のジョブ数を取得して通知を更新
-    final jobs = await _downloaderService.getJobs();
+    final jobs = _downloaderService.getJobs();
     final processingJobs = jobs.where((j) => j.status == 'calculating' || j.status == 'downloading').length;
     final pendingJobs = jobs.where((j) => j.status == 'pending').length;
 
@@ -36,7 +37,7 @@ class CacheDownloaderTaskHandler extends TaskHandler {
   }
 
   @override
-  Future<void> onDestroy(DateTime timestamp, SendPort? sendPort) async {
+  Future<void> onDestroy(DateTime timestamp, bool isTimeout) async {
     // サービスのポーリングを停止
     await _downloaderService.stopPollingForForegroundTask();
   }

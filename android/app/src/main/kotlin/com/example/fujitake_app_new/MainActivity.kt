@@ -307,6 +307,73 @@ class MainActivity: FlutterActivity() {
                         result.error("INVALID_ARGUMENTS", "fileName is required.", null)
                     }
                 }
+                "delete" -> {
+                    val host = call.argument<String>("host")
+                    val shareName = call.argument<String>("shareName")
+                    val path = call.argument<String>("path")
+                    val isDirectory = call.argument<Boolean>("isDirectory") ?: false
+                    val username = call.argument<String>("username")
+                    val password = call.argument<String>("password")
+                    val domain = call.argument<String>("domain")
+
+                    if (host == null || shareName == null || path == null) {
+                        result.error("INVALID_ARGUMENTS", "Host, shareName, and path are required.", null)
+                        return@setMethodCallHandler
+                    }
+
+                    CoroutineScope(Dispatchers.IO).launch {
+                        try {
+                            val context = createCifsContext(domain, username, password)
+                            val smbFile = SmbFile("smb://$host/$shareName/$path", context)
+                            
+                            if (isDirectory) {
+                                recursiveDelete(smbFile)
+                            } else {
+                                smbFile.delete()
+                            }
+                            
+                            withContext(Dispatchers.Main) {
+                                result.success(true)
+                            }
+                        } catch (e: Exception) {
+                            withContext(Dispatchers.Main) {
+                                result.error("SMB_ERROR", "Failed to delete: ${e.message}", e.toString())
+                            }
+                        }
+                    }
+                }
+                "move" -> {
+                    val host = call.argument<String>("host")
+                    val shareName = call.argument<String>("shareName")
+                    val sourcePath = call.argument<String>("sourcePath")
+                    val destinationPath = call.argument<String>("destinationPath")
+                    val username = call.argument<String>("username")
+                    val password = call.argument<String>("password")
+                    val domain = call.argument<String>("domain")
+
+                    if (host == null || shareName == null || sourcePath == null || destinationPath == null) {
+                        result.error("INVALID_ARGUMENTS", "Host, shareName, sourcePath, and destinationPath are required.", null)
+                        return@setMethodCallHandler
+                    }
+
+                    CoroutineScope(Dispatchers.IO).launch {
+                        try {
+                            val context = createCifsContext(domain, username, password)
+                            val sourceFile = SmbFile("smb://$host/$shareName/$sourcePath", context)
+                            val destinationFile = SmbFile("smb://$host/$shareName/$destinationPath", context)
+                            
+                            sourceFile.renameTo(destinationFile)
+                            
+                            withContext(Dispatchers.Main) {
+                                result.success(true)
+                            }
+                        } catch (e: Exception) {
+                            withContext(Dispatchers.Main) {
+                                result.error("SMB_ERROR", "Failed to move: ${e.message}", e.toString())
+                            }
+                        }
+                    }
+                }
                 else -> result.notImplemented()
             }
         }
@@ -558,6 +625,27 @@ class MainActivity: FlutterActivity() {
         return inSampleSize
     }
 
+
+    private fun recursiveDelete(file: SmbFile) {
+        if (file.isDirectory) {
+            try {
+                file.listFiles()?.forEach {
+                    recursiveDelete(it)
+                }
+            } catch (e: Exception) {
+                log("Error listing files in ${file.path} for deletion: ${e.message}")
+            }
+        }
+        try {
+            file.delete()
+        } catch (e: Exception) {
+            log("Error deleting ${file.path}: ${e.message}")
+            throw e
+        }
+    }
+
+
+
     inner class StreamingServer : NanoHTTPD(8080) {
         private val smbStreamInfoMap = mutableMapOf<String, SmbStreamInfo>()
 
@@ -626,6 +714,8 @@ class MainActivity: FlutterActivity() {
                 e.printStackTrace()
                 return newFixedLengthResponse(Response.Status.INTERNAL_ERROR, "text/plain", "Error serving file: ${e.message}")
             }
+
+
         }
     }
 }

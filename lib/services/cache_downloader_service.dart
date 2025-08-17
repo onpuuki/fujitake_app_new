@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:collection/collection.dart';
 import 'package:flutter/services.dart';
 import '../models/cache_job_model.dart';
 import '../models/nas_server_model.dart';
@@ -14,6 +15,9 @@ class CacheDownloaderService {
   }
   static final CacheDownloaderService instance = CacheDownloaderService._privateConstructor();
 
+  final List<CacheJob> _jobs = [];
+
+
   Future<void> _initialize() async {
     // データベースから未完了のジョブをロードする
     final incompleteJobs = await DatabaseService.instance.getIncompleteCacheJobs();
@@ -22,29 +26,25 @@ class CacheDownloaderService {
   }
 
 
-  Future<void> addJob(String serverId, String remotePath, {bool recursive = false}) async {
+  Future<void> addJob(CacheJob job) async {
     // 既に同じジョブが存在しないかDBレベルでも確認することが望ましいが、まずはメモリでチェック
-    if (_jobs.any((j) => j.serverId == serverId && j.remotePath == remotePath)) {
-      print('Job already in queue for $remotePath');
+    if (_jobs.any((j) => j.serverId == job.serverId && j.remotePath == job.remotePath)) {
+      print('Job already in queue for ${job.remotePath}');
       return;
     }
-
-    final job = CacheJob(
-      serverId: serverId,
-      remotePath: remotePath,
-      recursive: recursive,
-      status: 'pending',
-      createdAt: DateTime.now(),
-    );
 
     try {
       final id = await DatabaseService.instance.addCacheJob(job);
       _jobs.add(job.copyWith(id: id));
-      print('Job added to DB and memory for $remotePath');
+      print('Job added to DB and memory for ${job.remotePath}');
     } catch (e) {
       print('Failed to add job: $e');
       // 必要に応じてエラーハンドリング
     }
+  }
+
+  List<CacheJob> getJobs() {
+    return List.unmodifiable(_jobs);
   }
 
 
@@ -73,9 +73,7 @@ class CacheDownloaderService {
     if (_isProcessing) return;
     _isProcessing = true;
 
-    // メモリ上のジョブリストから処理対象を探す
-    final jobToProcess = _jobs.firstWhere((j) => j.status == 'pending', orElse: () => null);
-
+    final jobToProcess = _jobs.firstWhereOrNull((j) => j.status == 'pending');
     if (jobToProcess == null) {
       _isProcessing = false;
       return; // 処理するジョブがない

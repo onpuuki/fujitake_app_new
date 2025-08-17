@@ -19,8 +19,6 @@ class CacheJob {
     required this.createdAt,
   });
 
-  // Convert a CacheJob into a Map. The keys must correspond to the names of the
-  // columns in the database.
   Map<String, dynamic> toMap() {
     return {
       'server_id': serverId,
@@ -33,7 +31,6 @@ class CacheJob {
     };
   }
 
-  // Implement a factory constructor for creating a new CacheJob instance from a map.
   factory CacheJob.fromMap(Map<String, dynamic> map) {
     return CacheJob(
       id: map['_id'],
@@ -44,6 +41,28 @@ class CacheJob {
       downloadedSize: map['downloaded_size'],
       status: map['status'],
       createdAt: DateTime.fromMillisecondsSinceEpoch(map['created_at']),
+    );
+  }
+
+  CacheJob copyWith({
+    int? id,
+    String? serverId,
+    String? remotePath,
+    bool? recursive,
+    int? totalSize,
+    int? downloadedSize,
+    String? status,
+    DateTime? createdAt,
+  }) {
+    return CacheJob(
+      id: id ?? this.id,
+      serverId: serverId ?? this.serverId,
+      remotePath: remotePath ?? this.remotePath,
+      recursive: recursive ?? this.recursive,
+      totalSize: totalSize ?? this.totalSize,
+      downloadedSize: downloadedSize ?? this.downloadedSize,
+      status: status ?? this.status,
+      createdAt: createdAt ?? this.createdAt,
     );
   }
 }

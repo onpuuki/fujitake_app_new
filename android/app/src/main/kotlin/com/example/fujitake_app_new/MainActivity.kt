@@ -94,17 +94,15 @@ class MainActivity: FlutterActivity() {
 
 
             when (controlType) {
-                MainActivity.CONTROL_TYPE_PLAY_PAUSE -> {
-                    sendPipLog("Play/Pause control received from PiP")
+                CONTROL_TYPE_PLAY_PAUSE -> {
                     isPlaying = !isPlaying
-                    sendPipLog("isPlaying toggled to: $isPlaying")
-                    methodChannel?.invokeMethod("onPipPlayPause", null)
+                    methodChannel?.invokeMethod("onPipPlayPause", isPlaying)
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                         updatePictureInPictureParams()
                     }
                 }
-                MainActivity.CONTROL_TYPE_REWIND -> methodChannel?.invokeMethod("onPipRewind", null)
-                MainActivity.CONTROL_TYPE_FORWARD -> methodChannel?.invokeMethod("onPipForward", null)
+                CONTROL_TYPE_REWIND -> methodChannel?.invokeMethod("onPipRewind", null)
+                CONTROL_TYPE_FORWARD -> methodChannel?.invokeMethod("onPipForward", null)
             }
         }
     }
@@ -272,31 +270,27 @@ class MainActivity: FlutterActivity() {
                     }
                 }
                 "readFile" -> {
-                    val smbUrl = call.argument<String>("smbUrl")
-                    log("readFile called with smbUrl: $smbUrl")
-                    val fileName = smbUrl?.substringAfterLast('/')
+                    val host = call.argument<String>("host")
+                    val shareName = call.argument<String>("shareName")
+                    val path = call.argument<String>("path")
+                    val username = call.argument<String>("username")
+                    val password = call.argument<String>("password")
+                    val domain = call.argument<String>("domain")
 
-                    if (smbUrl == null || fileName == null) {
-                        log("readFile error: smbUrl or fileName is null")
-                        result.error("INVALID_ARGUMENTS", "smbUrl and fileName are required.", null)
+                    if (host == null || shareName == null || path == null) {
+                        result.error("INVALID_ARGUMENTS", "Host, shareName, and path are required.", null)
                         return@setMethodCallHandler
                     }
 
-                    val host = call.argument<String>("host")
-                    val port = call.argument<Int>("port")
-                    val domain = call.argument<String>("domain")
-                    val username = call.argument<String>("username")
-                    val password = call.argument<String>("password")
-
                     CoroutineScope(Dispatchers.IO).launch {
                         try {
-                            val streamingUrl = startStreaming(host, port, domain, username, password, smbUrl, fileName)
-                            log("Successfully generated streamingUrl for readFile: $streamingUrl")
+                            val context = createCifsContext(domain, username, password)
+                            val smbFile = SmbFile("smb://$host/$shareName/$path", context)
+                            val bytes = smbFile.inputStream.use { it.readBytes() }
                             withContext(Dispatchers.Main) {
-                                result.success(streamingUrl)
+                                result.success(bytes)
                             }
                         } catch (e: Exception) {
-                            log("readFile error: ${e.message}")
                             withContext(Dispatchers.Main) {
                                 result.error("SMB_ERROR", e.message, e.toString())
                             }
@@ -385,13 +379,15 @@ class MainActivity: FlutterActivity() {
         }
     }
 
+
+
     @RequiresApi(Build.VERSION_CODES.O)
     private fun enterPipMode() {
         val params = PictureInPictureParams.Builder()
             .setAspectRatio(Rational(16, 9))
             .setActions(createPipActions())
             .build()
-        enterPictureInPictureMode(params)
+        activity.enterPictureInPictureMode(params)
     }
 
 

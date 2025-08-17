@@ -1,10 +1,11 @@
-import 'dart:async'; // For StreamSubscription
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:video_player/video_player.dart';
 import 'package:path/path.dart' as p;
 import '../models/nas_server_model.dart';
+import '../services/log_service.dart';
 
 class VideoViewerScreen extends StatefulWidget {
   final NasServer server;
@@ -28,75 +29,73 @@ class _VideoViewerScreenState extends State<VideoViewerScreen> {
   String? _error;
   bool _showControls = true;
 
-  // For logging
-  static const EventChannel _logChannel = EventChannel('com.example.fujitake_app_new/log');
-  StreamSubscription<dynamic>? _logSubscription;
-  final List<String> _logMessages = [];
-
+  final MethodChannel _smbChannel = const MethodChannel('com.example.fujitake_app_new/smb');
   @override
   void initState() {
     super.initState();
+    logService.add('VideoViewerScreen: initState for ${widget.videoPath}');
     _initializePlayer();
-    _startLogListener();
-  }
-
-  void _startLogListener() {
-    _logSubscription = _logChannel.receiveBroadcastStream().listen((log) {
-      if (mounted) {
-        setState(() {
-          _logMessages.insert(0, log as String); // Add to top of the list
-        });
-      }
-    }, onError: (error) {
-      if (mounted) {
-        setState(() {
-          _logMessages.insert(0, 'LOG ERROR: ${error.toString()}');
-        });
-      }
-    });
   }
 
   Future<void> _initializePlayer() async {
-    // ... (rest of the method remains the same)
+    logService.add('VideoViewerScreen: Starting player initialization.');
     try {
       VideoPlayerController controller;
       File? localFile = widget.localPath != null ? File(widget.localPath!) : null;
       bool localFileExists = await localFile?.exists() ?? false;
 
       if (localFileExists) {
+        logService.add('VideoViewerScreen: Playing from local file: ${widget.localPath}');
         controller = VideoPlayerController.file(localFile!);
       } else {
-        final encodedPath = widget.videoPath.replaceAll(r'\', '/').split('/').map(Uri.encodeComponent).join('/');
-        final smbUrl = 'smb://${widget.server.host}${widget.server.shareName != null ? '/${widget.server.shareName}' : ''}/$encodedPath';
+        if (widget.localPath != null) {
+          logService.add('VideoViewerScreen: Local file specified but not found: ${widget.localPath}');
+        }
+        logService.add('VideoViewerScreen: Playing from remote source.');
+        
+        final smbUrl = 'smb://${widget.server.host}${widget.server.shareName != null ? '/${widget.server.shareName}' : ''}/${widget.videoPath}';
+        logService.add('VideoViewerScreen: Constructed smbUrl: $smbUrl');
+
         final String? streamingUrl = await MethodChannel('com.example.fujitake_app_new/smb').invokeMethod('startStreaming', {
           'smbUrl': smbUrl,
           'host': widget.server.host,
           'shareName': widget.server.shareName,
           'username': widget.server.username,
-          'password': widget.server.password,
+  'password': widget.server.password,
           'path': widget.videoPath,
           'fileName': p.basename(widget.videoPath),
           'domain': widget.server.domain,
         });
 
-        if (streamingUrl != null) {
+        logService.add('VideoViewerScreen: Received streamingUrl: $streamingUrl');
+
+        if (streamingUrl != null && streamingUrl.isNotEmpty) {
+          logService.add('VideoViewerScreen: Initializing controller with network URL.');
           controller = VideoPlayerController.networkUrl(Uri.parse(streamingUrl));
         } else {
+          logService.add('VideoViewerScreen: Failed to get a valid streaming URL.');
           throw Exception('ストリーミングURLの取得に失敗しました。');
         }
       }
 
+      logService.add('VideoViewerScreen: Calling controller.initialize()');
       await controller.initialize();
+      logService.add('VideoViewerScreen: controller.initialize() completed.');
+      
       await controller.play();
+      logService.add('VideoViewerScreen: Play command issued.');
       
       if (mounted) {
         setState(() {
           _controller = controller;
           _isLoading = false;
+          logService.add('VideoViewerScreen: Player initialized successfully and state is updated.');
         });
       }
 
-    } catch (e, s) { // Add stack trace
+    } catch (e, s) {
+      logService.add('VideoViewerScreen: ERROR in _initializePlayer: ${e.toString()}');
+      logService.add('VideoViewerScreen: StackTrace: ${s.toString()}');
       if (mounted) {
         setState(() {
           _error = '動画の読み込みに失敗しました: $e\n$s';
@@ -108,8 +107,9 @@ class _VideoViewerScreenState extends State<VideoViewerScreen> {
 
   @override
   void dispose() {
+    logService.add('VideoViewerScreen: dispose');
+    _smbChannel.invokeMethod('stopStreaming', {'fileName': p.basename(widget.videoPath)});
     _controller?.dispose();
-    _logSubscription?.cancel(); // Cancel subscription
     super.dispose();
   }
   
@@ -128,26 +128,16 @@ class _VideoViewerScreenState extends State<VideoViewerScreen> {
       backgroundColor: Colors.black,
       body: GestureDetector(
         onTap: _toggleControls,
-        child: Column( // Use Column to show player and logs
-          children: [
-            Expanded(
-              flex: 3, // Give more space to the player
-              child: _buildPlayer(),
-            ),
-            _buildLogView(), // Log viewer
-          ],
-        ),
+        child: _buildPlayer(),
       ),
     );
   }
 
   Widget _buildPlayer() {
-    // ... (this method remains the same)
      if (_isLoading) {
       return const Center(child: CircularProgressIndicator());
     }
     if (_error != null) {
-      // Make error text scrollable
       return SingleChildScrollView(
         child: Padding(
           padding: const EdgeInsets.all(8.0),
@@ -156,6 +146,7 @@ class _VideoViewerScreenState extends State<VideoViewerScreen> {
       );
     }
     if (_controller == null || !_controller!.value.isInitialized) {
+      logService.add('VideoViewerScreen: Build called but controller is not ready.');
       return const Center(child: Text("コントローラーが初期化されていません", style: TextStyle(color: Colors.white)));
     }
     
@@ -169,27 +160,6 @@ class _VideoViewerScreenState extends State<VideoViewerScreen> {
             if (_showControls)
               VideoProgressIndicator(_controller!, allowScrubbing: true),
           ],
-        ),
-      ),
-    );
-  }
-
-  // Widget to display logs
-  Widget _buildLogView() {
-    return Expanded(
-      flex: 1, // Give less space to the logs
-      child: Container(
-        color: Colors.grey[900],
-        padding: const EdgeInsets.all(8.0),
-        child: ListView.builder(
-          reverse: true, // To show newest logs at the bottom
-          itemCount: _logMessages.length,
-          itemBuilder: (context, index) {
-            return Text(
-              _logMessages[index],
-              style: const TextStyle(color: Colors.white, fontSize: 10),
-            );
-          },
         ),
       ),
     );

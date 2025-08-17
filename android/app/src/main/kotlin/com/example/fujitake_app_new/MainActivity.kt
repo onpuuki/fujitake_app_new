@@ -9,8 +9,8 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.graphics.drawable.Icon
 import android.os.Build
-import android.os.Bundle
 import android.util.Log
+import android.os.Bundle
 import android.util.Rational
 import androidx.annotation.RequiresApi
 import fi.iki.elonen.NanoHTTPD
@@ -50,6 +50,13 @@ data class SmbNativeFile(
     val lastModified: Long
 )
 
+data class SmbStreamInfo(
+    val smbUrl: String,
+    val domain: String?,
+    val username: String?,
+    val password: String?
+)
+
 class MainActivity: FlutterActivity() {
     companion object {
         const val ACTION_PIP_CONTROL = "pip_control"
@@ -58,6 +65,11 @@ class MainActivity: FlutterActivity() {
         const val CONTROL_TYPE_PLAY_PAUSE = 1
         const val CONTROL_TYPE_REWIND = 2
         const val CONTROL_TYPE_FORWARD = 3
+
+    private fun log(message: String) {
+        Log.d("FujitakeAppSmb", message)
+    }
+
     }
 
     private val CHANNEL = "com.example.fujitake_app_new/smb"
@@ -115,6 +127,7 @@ class MainActivity: FlutterActivity() {
         
         methodChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
         methodChannel?.setMethodCallHandler { call, result ->
+            log("Method call received: ${call.method}")
             when (call.method) {
                 "listFiles" -> {
                     val host = call.argument<String>("host")
@@ -173,7 +186,10 @@ class MainActivity: FlutterActivity() {
                 "startStreaming" -> {
                     val smbUrl = call.argument<String>("smbUrl")
                     val fileName = call.argument<String>("fileName")
+                    log("startStreaming called with smbUrl: $smbUrl, fileName: $fileName")
+
                     if (smbUrl == null || fileName == null) {
+                        log("startStreaming error: smbUrl or fileName is null")
                         result.error("INVALID_ARGUMENTS", "smbUrl and fileName are required.", null)
                         return@setMethodCallHandler
                     }
@@ -187,10 +203,12 @@ class MainActivity: FlutterActivity() {
                     CoroutineScope(Dispatchers.IO).launch {
                         try {
                             val streamingUrl = startStreaming(host, port, domain, username, password, smbUrl, fileName)
+                            log("Successfully generated streamingUrl: $streamingUrl")
                             withContext(Dispatchers.Main) {
                                 result.success(streamingUrl)
                             }
                         } catch (e: Exception) {
+                            log("startStreaming error: ${e.message}")
                             withContext(Dispatchers.Main) {
                                 result.error("SMB_ERROR", e.message, e.toString())
                             }
@@ -255,27 +273,44 @@ class MainActivity: FlutterActivity() {
                 }
                 "readFile" -> {
                     val smbUrl = call.argument<String>("smbUrl")
+                    log("readFile called with smbUrl: $smbUrl")
+                    val fileName = smbUrl?.substringAfterLast('/')
+
+                    if (smbUrl == null || fileName == null) {
+                        log("readFile error: smbUrl or fileName is null")
+                        result.error("INVALID_ARGUMENTS", "smbUrl and fileName are required.", null)
+                        return@setMethodCallHandler
+                    }
+
+                    val host = call.argument<String>("host")
+                    val port = call.argument<Int>("port")
                     val domain = call.argument<String>("domain")
                     val username = call.argument<String>("username")
                     val password = call.argument<String>("password")
 
-                    if (smbUrl == null) {
-                        result.error("INVALID_ARGUMENTS", "smbUrl is required.", null)
-                        return@setMethodCallHandler
-                    }
-
                     CoroutineScope(Dispatchers.IO).launch {
                         try {
-                            val smbFile = createSmbFile(smbUrl, domain, username, password)
-                            val fileBytes = smbFile.inputStream.use { it.readBytes() }
+                            val streamingUrl = startStreaming(host, port, domain, username, password, smbUrl, fileName)
+                            log("Successfully generated streamingUrl for readFile: $streamingUrl")
                             withContext(Dispatchers.Main) {
-                                result.success(fileBytes)
+                                result.success(streamingUrl)
                             }
                         } catch (e: Exception) {
+                            log("readFile error: ${e.message}")
                             withContext(Dispatchers.Main) {
-                                result.error("FILE_READ_ERROR", e.message, e.toString())
+                                result.error("SMB_ERROR", e.message, e.toString())
                             }
                         }
+                    }
+                }
+                "stopStreaming" -> {
+                    val fileName = call.argument<String>("fileName")
+                    if (fileName != null) {
+                        log("Stopping streaming for $fileName")
+                        streamingServer?.removeStreamInfo(fileName)
+                        result.success(null)
+                    } else {
+                        result.error("INVALID_ARGUMENTS", "fileName is required.", null)
                     }
                 }
                 else -> result.notImplemented()
@@ -411,10 +446,10 @@ class MainActivity: FlutterActivity() {
         }
     }
 
-    private fun startStreaming(host: String?, port: Int?, domain: String?, user: String?, pass: String?, smbUrl: String, fileName: String): String {
-        val auth = createCifsContext(domain, user, pass)
-        val smbFile = SmbFile(smbUrl, auth)
-        return streamingServer!!.serveSmbFile(fileName, smbFile)
+    private fun startStreaming(host: String?, port: Int?, domain: String?, username: String?, password: String?, smbUrl: String, fileName: String): String {
+        log("MainActivity: Preparing stream for $fileName with URL $smbUrl")
+        val streamInfo = SmbStreamInfo(smbUrl, domain, username, password)
+        return streamingServer!!.prepareStream(fileName, streamInfo)
     }
 
     private fun getThumbnail(host: String, shareName: String, path: String, isVideo: Boolean, file: SmbNativeFile, user: String?, pass: String?): ByteArray? {
@@ -528,64 +563,73 @@ class MainActivity: FlutterActivity() {
     }
 
     inner class StreamingServer : NanoHTTPD(8080) {
-        private val smbFileMap = mutableMapOf<String, SmbFile>()
+        private val smbStreamInfoMap = mutableMapOf<String, SmbStreamInfo>()
 
-        fun serveSmbFile(fileName: String, smbFile: SmbFile): String {
-            smbFileMap[fileName] = smbFile
-            return "http://1227.0.0.1:8080/$fileName"
+        fun prepareStream(fileName: String, streamInfo: SmbStreamInfo): String {
+            log("StreamingServer: Preparing stream for $fileName")
+            smbStreamInfoMap[fileName] = streamInfo
+            val encodedFileName = java.net.URLEncoder.encode(fileName, "UTF-8").replace("+", "%20")
+            return "http://127.0.0.1:8080/$encodedFileName"
+        }
+
+        fun removeStreamInfo(fileName: String) {
+            log("StreamingServer: Removing stream info for $fileName")
+            smbStreamInfoMap.remove(fileName)
         }
 
         override fun serve(session: IHTTPSession): Response {
-            val uri = session.uri
-            val fileName = uri.substring(1) // /fileName -> fileName
-            val smbFile = smbFileMap[fileName]
+            val fileName = session.uri.substring(1)
+            log("StreamingServer: Received request for $fileName")
+            val streamInfo = smbStreamInfoMap[fileName]
 
-            if (smbFile == null) {
+            if (streamInfo == null) {
+                log("StreamingServer: Error - Stream info not found for $fileName")
                 return newFixedLengthResponse(Response.Status.NOT_FOUND, "text/plain", "File not found")
             }
-            val rangeHeader = session.headers["range"]
-            var startByte: Long = 0
-            var endByte: Long = -1
-            val totalLength = smbFile.length()
-            val mimeType = "video/mp4" // または smbFile.contentType などから取得
 
-            if (rangeHeader != null) {
-                val rangeValue = rangeHeader.replace("bytes=", "")
-                val parts = rangeValue.split("-")
-                startByte = parts[0].toLong()
-                if (parts.size > 1 && parts[1].isNotEmpty()) {
-                    endByte = parts[1].toLong()
-                } else {
-                    endByte = totalLength - 1
+            try {
+                log("StreamingServer: Creating new SmbFile for ${streamInfo.smbUrl}")
+                val context = createCifsContext(streamInfo.domain, streamInfo.username, streamInfo.password)
+                val smbFile = SmbFile(streamInfo.smbUrl, context)
+                val fileSize = smbFile.length()
+
+                val mimeType = when {
+                    fileName.endsWith(".mp4", true) || fileName.endsWith(".mov", true) -> "video/mp4"
+                    fileName.endsWith(".jpg", true) || fileName.endsWith(".jpeg", true) -> "image/jpeg"
+                    fileName.endsWith(".png", true) -> "image/png"
+                    else -> "application/octet-stream"
                 }
-            }
 
-            val inputStream: InputStream = smbFile.inputStream
-            if (startByte > 0) {
-                inputStream.skip(startByte)
-            }
+                log("StreamingServer: Serving ${smbFile.name} (Size: $fileSize, MIME: $mimeType)")
 
-            val response: Response
-            if (rangeHeader != null && startByte <= endByte) {
-                val contentLength = endByte - startByte + 1
-                response = newFixedLengthResponse(
-                    Response.Status.PARTIAL_CONTENT,
-                    mimeType,
-                    inputStream,
-                    contentLength
-                )
-                response.addHeader("Content-Range", "bytes $startByte-$endByte/$totalLength")
-            } else {
-                response = newFixedLengthResponse(
-                    Response.Status.OK,
-                    mimeType,
-                    inputStream,
-                    totalLength
-                )
-            }
+                val rangeHeader = session.headers["range"]
+                if (rangeHeader != null && mimeType.startsWith("video/")) {
+                    val ranges = rangeHeader.substring("bytes=".length).split("-")
+                    val start = ranges[0].toLongOrNull() ?: 0L
+                    val end = if (ranges.size > 1 && ranges[1].isNotEmpty()) ranges[1].toLongOrNull() ?: (fileSize - 1) else fileSize - 1
+                    
+                    val chunkedStream = smbFile.inputStream.apply { skip(start) }
+                    val chunkSize = end - start + 1
 
-            response.addHeader("Accept-Ranges", "bytes")
-            return response
+                    val res = newFixedLengthResponse(Response.Status.PARTIAL_CONTENT, mimeType, chunkedStream, chunkSize)
+                    res.addHeader("Content-Length", chunkSize.toString())
+                    res.addHeader("Content-Range", "bytes $start-$end/$fileSize")
+                    res.addHeader("Accept-Ranges", "bytes")
+                    log("StreamingServer: Serving partial content for $fileName from $start to $end")
+                    return res
+                } else {
+                    val inputStream = smbFile.inputStream
+                    val res = newFixedLengthResponse(Response.Status.OK, mimeType, inputStream, fileSize)
+                    res.addHeader("Content-Length", fileSize.toString())
+                    res.addHeader("Accept-Ranges", "bytes")
+                    log("StreamingServer: Serving full content for $fileName")
+                    return res
+                }
+            } catch (e: Exception) {
+                log("StreamingServer: Error serving file $fileName - ${e.message}")
+                e.printStackTrace()
+                return newFixedLengthResponse(Response.Status.INTERNAL_ERROR, "text/plain", "Error serving file: ${e.message}")
+            }
         }
     }
 }

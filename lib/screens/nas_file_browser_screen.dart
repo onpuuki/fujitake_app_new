@@ -134,7 +134,6 @@ class _NasFileBrowserScreenState extends State<NasFileBrowserScreen> {
           builder: (context) => ImageViewerScreen(
             server: widget.server,
             imagePath: remotePath,
-            localPath: localPath, // ローカルパスを渡す
           ),
         ),
       );

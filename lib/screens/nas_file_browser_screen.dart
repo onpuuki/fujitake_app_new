@@ -5,6 +5,7 @@ import 'package:path_provider/path_provider.dart';
 import '../services/cache_service.dart';
 import '../models/nas_server_model.dart';
 import 'image_viewer_screen.dart';
+import 'cache_management_screen.dart';
 import 'video_viewer_screen.dart';
 
 // ネイティブから受け取るファイル情報を表すクラス
@@ -197,7 +198,30 @@ class _NasFileBrowserScreenState extends State<NasFileBrowserScreen> {
         return true;
       },
       child: Scaffold(
-        appBar: AppBar(title: Text(widget.server.nickname)),
+        appBar: AppBar(
+          title: Text(widget.server.nickname),
+          actions: [
+            PopupMenuButton<String>(
+              onSelected: (value) {
+                if (value == 'cache') {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => const CacheManagementScreen()),
+                  );
+                }
+              },
+              itemBuilder: (BuildContext context) {
+                return [
+                  const PopupMenuItem<String>(
+                    value: 'cache',
+                    child: Text('キャッシュ'),
+                  ),
+                ];
+              },
+              icon: const Icon(Icons.settings),
+            ),
+          ],
+        ),
         body: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [

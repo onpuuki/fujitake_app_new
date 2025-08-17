@@ -42,7 +42,10 @@ class NasFileBrowserScreen extends StatefulWidget {
 }
 
 class _NasFileBrowserScreenState extends State<NasFileBrowserScreen> {
+  static const _smbChannel = MethodChannel('com.example.fujitake_app_new/smb');
+  SmbNativeFile? _fileToMove;
   List<SmbNativeFile> _files = [];
+  String? _sourcePathForMove;
   Map<String, Uint8List?> _thumbnailCache = {};
   bool _isLoading = true;
   String _currentPath = ''; // ルートを空文字で表現
@@ -62,7 +65,7 @@ class _NasFileBrowserScreenState extends State<NasFileBrowserScreen> {
     });
 
     try {
-      final List<dynamic> files = await MethodChannel('com.example.fujitake_app_new/smb').invokeMethod('listFiles', {
+      final List<dynamic> files = await _smbChannel.invokeMethod('listFiles', {
         'host': widget.server.host,
         'shareName': widget.server.shareName,
         'username': widget.server.username,
@@ -89,7 +92,7 @@ class _NasFileBrowserScreenState extends State<NasFileBrowserScreen> {
     }
 
     try {
-      final Uint8List? thumbnail = await MethodChannel('com.example.fujitake_app_new/smb').invokeMethod('getThumbnail', {
+      final Uint8List? thumbnail = await _smbChannel.invokeMethod('getThumbnail', {
         'host': widget.server.host,
         'shareName': widget.server.shareName,
         'username': widget.server.username,
@@ -222,6 +225,29 @@ class _NasFileBrowserScreenState extends State<NasFileBrowserScreen> {
             ),
           ],
         ),
+        bottomNavigationBar: _fileToMove != null
+            ? BottomAppBar(
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceAround,
+                  children: [
+                    Text('${_fileToMove!.name} を移動中...'),
+                    ElevatedButton(
+                      onPressed: _pasteFile,
+                      child: const Text('ここに貼り付け'),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.cancel),
+                      onPressed: () {
+                        setState(() {
+                          _fileToMove = null;
+                          _sourcePathForMove = null;
+                        });
+                      },
+                    ),
+                  ],
+                ),
+              )
+            : null,
         body: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -276,15 +302,141 @@ class _NasFileBrowserScreenState extends State<NasFileBrowserScreen> {
             leading: _buildThumbnail(file),
             title: Text(file.name),
             onTap: () => _openFile(file),
-onLongPress: () {
-  if (file.isDirectory) {
-    _showCacheMenu(context, file);
-  }
-},
+            trailing: _buildPopupMenuButton(file),
           ),
         );
       },
     );
+  }
+
+  Widget _buildPopupMenuButton(SmbNativeFile file) {
+    return PopupMenuButton<String>(
+      onSelected: (value) {
+        if (value == 'delete') {
+          _showDeleteConfirmationDialog(file);
+        } else if (value == 'move') {
+          setState(() {
+            _fileToMove = file;
+            _sourcePathForMove = _currentPath;
+          });
+        } else if (value == 'cache') {
+          // TODO: Implement cache action
+        }
+      },
+      itemBuilder: (BuildContext context) {
+        return [
+          const PopupMenuItem<String>(
+            value: 'move',
+            child: Text('移動'),
+          ),
+          const PopupMenuItem<String>(
+            value: 'delete',
+            child: Text('削除'),
+          ),
+          const PopupMenuItem<String>(
+            value: 'cache',
+            child: Text('キャッシュ'),
+          ),
+        ];
+      },
+    );
+  }
+
+  Future<void> _showDeleteConfirmationDialog(SmbNativeFile file) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('削除の確認'),
+          content: Text('${file.name} を完全に削除します。よろしいですか？'),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('キャンセル'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('はい'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed == true) {
+      _deleteFile(file);
+    }
+  }
+
+  Future<void> _deleteFile(SmbNativeFile file) async {
+    try {
+      final remotePath = p.join(_currentPath, file.name);
+      // SMB URLはネイティブコード側で組み立てる想定
+      
+      final result = await _smbChannel.invokeMethod('delete', {
+        'host': widget.server.host,
+        'shareName': widget.server.shareName,
+        'username': widget.server.username,
+        'password': widget.server.password,
+        'path': remotePath,
+        'domain': widget.server.domain,
+        'isDirectory': file.isDirectory,
+      });
+
+      if (result == true) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('${file.name} を削除しました。')),
+        );
+        _listFiles(path: _currentPath); // ファイルリストを更新
+      } else {
+        throw Exception('Failed to delete file from native code.');
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('${file.name} の削除に失敗しました: $e')),
+      );
+    }
+  }
+
+  Future<void> _pasteFile() async {
+    if (_fileToMove == null) return;
+    
+    // 移動元と移動先のパスを取得
+    final sourcePath = p.join(_sourcePathForMove!, _fileToMove!.name);
+    final destinationPath = p.join(_currentPath, _fileToMove!.name);
+
+    setState(() {
+      _isLoading = true; // 処理中のインジケータを表示
+    });
+
+    try {
+      // ネイティブコードを呼び出して移動を実行
+      await _smbChannel.invokeMethod('move', {
+        'host': widget.server.host,
+        'shareName': widget.server.shareName,
+        'username': widget.server.username,
+        'password': widget.server.password,
+        'domain': widget.server.domain,
+        'sourcePath': sourcePath,
+        'destinationPath': destinationPath,
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('${_fileToMove!.name} を移動しました。')),
+      );
+
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('移動に失敗しました: $e')),
+      );
+    } finally {
+      setState(() {
+        _fileToMove = null; // 移動モードを終了
+        _sourcePathForMove = null;
+        _isLoading = false;
+      });
+      _listFiles(path: _currentPath); // 現在のディレクトリを再読み込み
+    }
   }
 
   Widget _buildThumbnail(SmbNativeFile file) {
@@ -436,7 +588,7 @@ onLongPress: () {
             final localFilePath = p.join(localCachePath, file.remotePath);
             
             // ネイティブメソッド呼び出し
-            final success = await MethodChannel('com.example.fujitake_app_new/smb').invokeMethod('downloadFile', {
+            final success = await _smbChannel.invokeMethod('downloadFile', {
               'host': widget.server.host,
               'shareName': widget.server.shareName,
               'username': widget.server.username,
@@ -476,10 +628,8 @@ onLongPress: () {
   // ヘルパー: ファイルを再帰的に取得する
   Future<List<_CacheTaskItem>> _fetchAllFilesRecursively(String currentPath, bool recursive) async {
     final List<_CacheTaskItem> allFiles = [];
-    final channel = MethodChannel('com.example.fujitake_app_new/smb');
-
     // 指定されたディレクトリ内のアイテムを取得
-    final List<dynamic> items = await channel.invokeMethod('listFiles', {
+    final List<dynamic> items = await _smbChannel.invokeMethod('listFiles', {
       'host': widget.server.host,
       'shareName': widget.server.shareName,
       'username': widget.server.username,

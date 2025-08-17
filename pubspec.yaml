@@ -70,6 +70,7 @@ dependencies:
   sqflite_common_ffi: ^2.3.0
   flutter_foreground_task: ^9.1.0 # Androidフォアグラウンドサービス用
 
+  collection: ^1.18.0
 dev_dependencies:
   flutter_test:
     sdk: flutter

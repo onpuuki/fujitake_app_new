@@ -612,7 +612,6 @@ class MainActivity: FlutterActivity() {
                     val chunkSize = end - start + 1
 
                     val res = newFixedLengthResponse(Response.Status.PARTIAL_CONTENT, mimeType, chunkedStream, chunkSize)
-                    res.addHeader("Content-Length", chunkSize.toString())
                     res.addHeader("Content-Range", "bytes $start-$end/$fileSize")
                     res.addHeader("Accept-Ranges", "bytes")
                     log("StreamingServer: Serving partial content for $fileName from $start to $end")
@@ -620,7 +619,6 @@ class MainActivity: FlutterActivity() {
                 } else {
                     val inputStream = smbFile.inputStream
                     val res = newFixedLengthResponse(Response.Status.OK, mimeType, inputStream, fileSize)
-                    res.addHeader("Content-Length", fileSize.toString())
                     res.addHeader("Accept-Ranges", "bytes")
                     log("StreamingServer: Serving full content for $fileName")
                     return res

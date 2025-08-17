@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 import '../models/nas_server_model.dart';
+import 'dart:io';
+import '../services/cache_path_service.dart';
 
 class ImageViewerScreen extends StatefulWidget {
   final NasServer server;
@@ -28,19 +30,31 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
   }
 
   Future<Uint8List> _loadImageBytes() async {
-    const MethodChannel smbChannel = MethodChannel('com.example.fujitake_app_new/smb');
-    try {
-      final Uint8List imageBytes = await smbChannel.invokeMethod('readFile', {
-        'host': widget.server.host,
-        'shareName': widget.server.shareName,
-        'username': widget.server.username,
-        'password': widget.server.password,
-        'path': widget.imagePath,
-        'domain': widget.server.domain,
-      });
-      return imageBytes;
-    } on PlatformException catch (e) {
-      throw Exception('Failed to load image bytes: ${e.message}');
+    // 1. キャッシュファイルの存在を確認
+    final localPath = await CachePathService.instance.getLocalPath(widget.server.id, widget.imagePath);
+    final localFile = File(localPath);
+
+    if (await localFile.exists()) {
+      // 3. キャッシュが存在する場合
+      print("キャッシュから画像を表示します: $localPath");
+      return await localFile.readAsBytes();
+    } else {
+      // 4. キャッシュが存在しない場合
+      print("リモートから画像を読み込みます: ${widget.imagePath}");
+      const MethodChannel smbChannel = MethodChannel('com.example.fujitake_app_new/smb');
+      try {
+        final Uint8List imageBytes = await smbChannel.invokeMethod('readFile', {
+          'host': widget.server.host,
+          'shareName': widget.server.shareName,
+          'username': widget.server.username,
+          'password': widget.server.password,
+          'path': widget.imagePath,
+          'domain': widget.server.domain,
+        });
+        return imageBytes;
+      } on PlatformException catch (e) {
+        throw Exception('Failed to load image bytes: ${e.message}');
+      }
     }
   }
 

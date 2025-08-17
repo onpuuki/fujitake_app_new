@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:video_player/video_player.dart';
+import '../services/cache_path_service.dart';
 import 'package:path/path.dart' as p;
 import '../models/nas_server_model.dart';
 
@@ -67,19 +68,33 @@ class _VideoViewerScreenState extends State<VideoViewerScreen> {
 
   Future<void> _initializePlayer() async {
     try {
-      final String? streamingUrl = await _getStreamingUrl();
-      if (streamingUrl != null && streamingUrl.isNotEmpty) {
-        final controller = VideoPlayerController.networkUrl(Uri.parse(streamingUrl));
-        await controller.initialize();
-        await controller.play();
-        if (mounted) {
-          setState(() {
-            _controller = controller;
-            _isLoading = false;
-          });
-        }
+      // 1. キャッシュファイルの存在を確認
+      final localPath = await CachePathService.instance.getLocalPath(widget.server.id, widget.videoPath);
+      final localFile = File(localPath);
+
+      VideoPlayerController controller;
+      if (await localFile.exists()) {
+        // 2. キャッシュが存在する場合
+        print("キャッシュから動画を再生します: $localPath");
+        controller = VideoPlayerController.file(localFile);
       } else {
-        throw Exception('ストリーミングURLの取得に失敗しました。');
+        // 3. キャッシュが存在しない場合 (ストリーミング)
+        final String? streamingUrl = await _getStreamingUrl();
+        if (streamingUrl != null && streamingUrl.isNotEmpty) {
+          print("ストリーミングで動画を再生します: $streamingUrl");
+          controller = VideoPlayerController.networkUrl(Uri.parse(streamingUrl));
+        } else {
+          throw Exception("ストリーミングURLの取得に失敗しました。");
+        }
+      }
+
+      await controller.initialize();
+      await controller.play();
+      if (mounted) {
+        setState(() {
+          _controller = controller;
+          _isLoading = false;
+        });
       }
     } catch (e, s) {
       if (mounted) {

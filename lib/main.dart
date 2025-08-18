@@ -70,12 +70,14 @@ void _initForegroundTask() {
     androidNotificationOptions: AndroidNotificationOptions(
       channelId: 'fujitake_cache_downloader',
       channelName: 'Cache Download Service',
-      notificationOptions: NotificationOptions(
-        onPressed: FlutterForegroundTask.launchApp,
-      ),
+      onTap: () { // onTap を使用
+        FlutterForegroundTask.launchApp();
+      },
     ),
     iosNotificationOptions: const IOSNotificationOptions(),
-    foregroundTaskOptions: const ForegroundTaskOptions(),
+    foregroundTaskOptions: const ForegroundTaskOptions(
+      eventAction: ForegroundTaskEventAction.resumeApp, // 必須なので元に戻す
+    ),
   );
 }
 

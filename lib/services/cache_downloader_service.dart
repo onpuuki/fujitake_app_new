@@ -89,7 +89,7 @@ class CacheDownloaderService {
       }
 
       // ステータスを 'calculating' に更新
-      jobToProcess.status = 'calculating';
+      _updateJobStatus(jobToProcess, 'calculating');
       await dbService.updateCacheJob(jobToProcess);
 
       // ファイルリストを取得して合計サイズを計算
@@ -97,13 +97,13 @@ class CacheDownloaderService {
       final totalSize = filesToCache.fold<int>(0, (sum, file) => sum + file.size);
 
       jobToProcess.totalSize = totalSize;
-      jobToProcess.status = 'downloading';
+      _updateJobStatus(jobToProcess, 'downloading');
       await dbService.updateCacheJob(jobToProcess);
 
       // 実際のダウンロード処理
       final cachePathService = CachePathService.instance;
       for (final file in filesToCache) {
-        final remoteFilePath = p.join(jobToProcess.remotePath, file.name); // 注意: このパスの組み立て方は要件による
+        final remoteFilePath = file.fullPath;
         final localFilePath = await cachePathService.getLocalPath(server.id, remoteFilePath);
 
         try {
@@ -122,7 +122,7 @@ class CacheDownloaderService {
 
         } catch (e) {
           print('Failed to download file $remoteFilePath: $e');
-          jobToProcess.status = 'failed';
+          _updateJobStatus(jobToProcess, 'failed');
           await dbService.updateCacheJob(jobToProcess);
           // 1つのファイルで失敗したらジョブ全体を失敗させてループを抜ける
           _isProcessing = false;
@@ -130,12 +130,12 @@ class CacheDownloaderService {
         }
       }
 
-      jobToProcess.status = 'completed';
+      _updateJobStatus(jobToProcess, 'completed');
       await dbService.updateCacheJob(jobToProcess);
       
     } catch (e) {
       print('Error processing cache job ${jobToProcess.id}: $e');
-      jobToProcess.status = 'failed';
+      _updateJobStatus(jobToProcess, 'failed');
       await DatabaseService.instance.updateCacheJob(jobToProcess);
     } finally {
       _isProcessing = false;
@@ -157,7 +157,7 @@ class CacheDownloaderService {
           'path': currentPath,
         });
 
-        final files = rawFiles.map((file) => SmbNativeFile.fromMap(file)).toList();
+        final files = rawFiles.map((file) => SmbNativeFile.fromMap(file, currentPath)).toList();
         for (final file in files) {
           if (file.isDirectory) {
             if (recursive) {
@@ -174,4 +174,17 @@ class CacheDownloaderService {
     }
     return allFiles;
   }
+
+  void _updateJobStatus(CacheJob job, String newStatus) {
+    final index = _jobs.indexWhere((j) => j.id == job.id);
+    if (index != -1) {
+      final updatedJob = job.copyWith(status: newStatus);
+      _jobs[index] = updatedJob;
+      // メモリ上のジョブオブジェクトも更新する
+      if (job.id == _jobs[index].id) {
+          job.status = newStatus;
+      }
+    }
+  }
 }
+

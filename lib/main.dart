@@ -8,11 +8,13 @@ import 'package:fujitake_app_new/screens/top_screen.dart';
 import 'package:fujitake_app_new/screens/login_screen.dart';
 import 'package:fujitake_app_new/services/firestore_service.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'dart:io'; // Platformをインポート
 import 'dart:convert';
 
 // Foreground Task Imports
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'services/foreground_task_handler.dart';
+import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 
 // Firebase設定をCanvas環境から取得
 const String _firebaseConfigString = String.fromEnvironment(
@@ -20,20 +22,24 @@ const String _firebaseConfigString = String.fromEnvironment(
   defaultValue: '{}',
 );
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  sqfliteFfiInit();
-  databaseFactory = databaseFactoryFfi;
+  
+  // デスクトップ環境 (Windows, Linux, macOS) のみで FFI を初期化
+  if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+    sqfliteFfiInit();
+    databaseFactory = databaseFactoryFfi;
+  }
 
-  // _initForegroundTask();
+  _initForegroundTask();
 
   // Firebaseの初期化は非同期で行うため、別の関数に切り出す
-  _initializeApp();
+  await _initializeApp();
 
   runApp(
-    // WithForegroundTask(
-      const MyApp(),
-    // ),
+    WithForegroundTask(
+      child: const MyApp(),
+    ),
   );
 }
 
@@ -59,18 +65,18 @@ Future<void> _initializeApp() async {
 }
 
 // Foreground Task Initialization
-// void _initForegroundTask() {
-//   FlutterForegroundTask.init(
-//     androidNotificationOptions: AndroidNotificationOptions(
-//       channelId: 'fujitake_cache_downloader',
-//       channelName: 'Cache Download Service',
-//     ),
-//     iosNotificationOptions: const IOSNotificationOptions(),
-//     foregroundTaskOptions: const ForegroundTaskOptions(
-//       eventAction: ForegroundTaskEventAction.resumeApp,
-//     ),
-//   );
-// }
+void _initForegroundTask() {
+  FlutterForegroundTask.init(
+    androidNotificationOptions: AndroidNotificationOptions(
+      channelId: 'fujitake_cache_downloader',
+      channelName: 'Cache Download Service',
+    ),
+    iosNotificationOptions: const IOSNotificationOptions(),
+    foregroundTaskOptions: ForegroundTaskOptions( // nothing() を使用
+      eventAction: ForegroundTaskEventAction.nothing(),
+    ),
+  );
+}
 
 class MyApp extends StatelessWidget {
   const MyApp({super.key});

@@ -20,7 +20,7 @@ const String _firebaseConfigString = String.fromEnvironment(
   defaultValue: '{}',
 );
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   sqfliteFfiInit();
   databaseFactory = databaseFactoryFfi;
@@ -28,7 +28,7 @@ void main() {
   // _initForegroundTask();
 
   // Firebaseの初期化は非同期で行うため、別の関数に切り出す
-  _initializeApp();
+  await _initializeApp();
 
   runApp(
     // WithForegroundTask(

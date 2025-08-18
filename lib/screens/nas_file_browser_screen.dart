@@ -460,6 +460,7 @@ class _NasFileBrowserScreenState extends State<NasFileBrowserScreen> {
         ),
       );
       await _startForegroundService();
+      _cacheDownloaderService.startPollingForForegroundTask();
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(

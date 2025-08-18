@@ -14,6 +14,7 @@ import 'dart:convert';
 // Foreground Task Imports
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'services/foreground_task_handler.dart';
+import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 
 // Firebase設定をCanvas環境から取得
 const String _firebaseConfigString = String.fromEnvironment(
@@ -37,7 +38,7 @@ Future<void> main() async {
 
   runApp(
     WithForegroundTask(
-      const MyApp(),
+      child: const MyApp(),
     ),
   );
 }
@@ -69,11 +70,12 @@ void _initForegroundTask() {
     androidNotificationOptions: AndroidNotificationOptions(
       channelId: 'fujitake_cache_downloader',
       channelName: 'Cache Download Service',
+      notificationOptions: NotificationOptions(
+        onPressed: FlutterForegroundTask.launchApp,
+      ),
     ),
     iosNotificationOptions: const IOSNotificationOptions(),
-    foregroundTaskOptions: const ForegroundTaskOptions(
-      eventAction: ForegroundTaskEventAction.resumeApp,
-    ),
+    foregroundTaskOptions: const ForegroundTaskOptions(),
   );
 }
 

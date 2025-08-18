@@ -8,6 +8,7 @@ import 'package:fujitake_app_new/screens/top_screen.dart';
 import 'package:fujitake_app_new/screens/login_screen.dart';
 import 'package:fujitake_app_new/services/firestore_service.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'dart:io'; // Platformをインポート
 import 'dart:convert';
 
 // Foreground Task Imports
@@ -22,8 +23,12 @@ const String _firebaseConfigString = String.fromEnvironment(
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  sqfliteFfiInit();
-  databaseFactory = databaseFactoryFfi;
+  
+  // デスクトップ環境 (Windows, Linux, macOS) のみで FFI を初期化
+  if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+    sqfliteFfiInit();
+    databaseFactory = databaseFactoryFfi;
+  }
 
   // _initForegroundTask();
 

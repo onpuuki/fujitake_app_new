@@ -42,7 +42,7 @@ android {
 }
 
 dependencies {
-    implementation(files("libs/jcifs-ng-2.1.6.jar"))
+    implementation(files("libs/jcifs-ng-2.1.9.jar"))
     implementation("org.slf4j:slf4j-api:1.7.32")
     implementation("org.slf4j:slf4j-simple:1.7.32")
     implementation("org.bouncycastle:bcprov-jdk15on:1.68")

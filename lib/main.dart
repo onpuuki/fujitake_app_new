@@ -30,15 +30,15 @@ Future<void> main() async {
     databaseFactory = databaseFactoryFfi;
   }
 
-  // _initForegroundTask();
+  _initForegroundTask();
 
   // Firebaseの初期化は非同期で行うため、別の関数に切り出す
   await _initializeApp();
 
   runApp(
-    // WithForegroundTask(
+    WithForegroundTask(
       const MyApp(),
-    // ),
+    ),
   );
 }
 
@@ -64,18 +64,18 @@ Future<void> _initializeApp() async {
 }
 
 // Foreground Task Initialization
-// void _initForegroundTask() {
-//   FlutterForegroundTask.init(
-//     androidNotificationOptions: AndroidNotificationOptions(
-//       channelId: 'fujitake_cache_downloader',
-//       channelName: 'Cache Download Service',
-//     ),
-//     iosNotificationOptions: const IOSNotificationOptions(),
-//     foregroundTaskOptions: const ForegroundTaskOptions(
-//       eventAction: ForegroundTaskEventAction.resumeApp,
-//     ),
-//   );
-// }
+void _initForegroundTask() {
+  FlutterForegroundTask.init(
+    androidNotificationOptions: AndroidNotificationOptions(
+      channelId: 'fujitake_cache_downloader',
+      channelName: 'Cache Download Service',
+    ),
+    iosNotificationOptions: const IOSNotificationOptions(),
+    foregroundTaskOptions: const ForegroundTaskOptions(
+      eventAction: ForegroundTaskEventAction.resumeApp,
+    ),
+  );
+}
 
 class MyApp extends StatelessWidget {
   const MyApp({super.key});

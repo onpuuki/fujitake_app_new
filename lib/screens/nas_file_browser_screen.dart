@@ -459,7 +459,7 @@ class _NasFileBrowserScreenState extends State<NasFileBrowserScreen> {
           backgroundColor: Colors.green,
         ),
       );
-      // await _startForegroundService();
+      await _startForegroundService();
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(

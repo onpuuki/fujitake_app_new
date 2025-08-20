@@ -7,6 +7,7 @@ import '../screens/nas_file_browser_screen.dart'; // SmbNativeFile を使うた�
 import 'database_service.dart';
 import 'nas_server_service.dart';
 import 'package:path/path.dart' as p;
+import './log_service.dart';
 import 'cache_path_service.dart';
 
 class CacheDownloaderService {
@@ -85,7 +86,10 @@ class CacheDownloaderService {
       // サーバー情報を取得
       final server = await _nasServerService.getServerById(jobToProcess.serverId);
       if (server == null) {
+        LogService.instance.add('[_processPendingJobs] FATAL: Server not found for id: ${jobToProcess.serverId}');
         throw Exception('Server not found for job: ${jobToProcess.id}');
+      } else {
+        LogService.instance.add('[_processPendingJobs] Server loaded: ${server.nickname}, Host: ${server.host}, Share: ${server.shareName}');
       }
 
       // ステータスを 'calculating' に更新
@@ -148,14 +152,20 @@ class CacheDownloaderService {
 
     while (directoriesToScan.isNotEmpty) {
       final currentPath = directoriesToScan.removeAt(0);
+      LogService.instance.add('[_listAllFilesRecursive] Scanning directory: "$currentPath"');
       try {
+        final normalizedPath = currentPath.replaceAll('\\', '/');
+        LogService.instance.add('[_listAllFilesRecursive] Normalized path for native call: "$normalizedPath"');
+
         final List<dynamic> rawFiles = await _smbChannel.invokeMethod('listFiles', {
           'host': server.host,
           'shareName': server.shareName,
           'username': server.username,
           'password': server.password,
-          'path': currentPath,
+          'path': normalizedPath,
         });
+
+        LogService.instance.add('[_listAllFilesRecursive] Native returned ${rawFiles.length} files/dirs for "$currentPath". Raw data: ${rawFiles.toString()}');
 
         final files = rawFiles.map((file) => SmbNativeFile.fromMap(file, currentPath)).toList();
         for (final file in files) {
@@ -167,8 +177,11 @@ class CacheDownloaderService {
             allFiles.add(file);
           }
         }
-      } catch (e) {
-        print('Failed to list files in $currentPath: $e');
+      } catch (e, stacktrace) {
+        final errorMessage = '[_listAllFilesRecursive] ERROR listing files for "$currentPath": ${e.toString()}';
+        LogService.instance.add(errorMessage);
+        LogService.instance.add('[_listAllFilesRecursive] Stacktrace: ${stacktrace.toString()}');
+        print(errorMessage); // 開発者向けにコンソールにも出力
         // 特定のディレクトリで失敗しても処理を続ける
       }
     }

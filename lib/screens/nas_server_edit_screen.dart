@@ -23,6 +23,7 @@ class _NasServerEditScreenState extends State<NasServerEditScreen> {
   int? _port;
   String? _username;
   String? _password;
+  String? _shareName;
 
 
   @override
@@ -34,6 +35,7 @@ class _NasServerEditScreenState extends State<NasServerEditScreen> {
     _port = widget.server?.port;
     _username = widget.server?.username;
     _password = widget.server?.password;
+    _shareName = widget.server?.shareName;
 
   }
 
@@ -48,7 +50,7 @@ class _NasServerEditScreenState extends State<NasServerEditScreen> {
         port: _port,
         username: _username,
         password: _password,
-        shareName: widget.server?.shareName, // Keep existing shareName if any
+        shareName: _shareName,
       );
 
       if (widget.server == null) {
@@ -123,6 +125,14 @@ class _NasServerEditScreenState extends State<NasServerEditScreen> {
               obscureText: true,
               onSaved: (value) => _password = value,
             ),
+            if (_protocol == NasProtocol.smb)
+              TextFormField(
+                initialValue: _shareName,
+                decoration: const InputDecoration(labelText: '共有名'),
+                validator: (value) =>
+                    value!.isEmpty ? '共有名を入力してください' : null,
+                onSaved: (value) => _shareName = value,
+              ),
 
           ],
         ),

@@ -19,19 +19,27 @@ class SmbNativeFile {
   final int size;
   final int lastModified;
 
+  final String fullPath;
+
   SmbNativeFile({
     required this.name,
     required this.isDirectory,
     required this.size,
     required this.lastModified,
+    required this.fullPath,
   });
 
-  factory SmbNativeFile.fromMap(Map<dynamic, dynamic> map) {
+  factory SmbNativeFile.fromMap(Map<dynamic, dynamic> map, String currentPath) {
+    final name = (map['name'] as String).replaceAll('\\', '/');
+    final normalizedCurrentPath = currentPath.replaceAll('\\', '/');
+    final fullPath = p.join(normalizedCurrentPath, name);
+
     return SmbNativeFile(
-      name: map['name'],
-      isDirectory: map['isDirectory'],
-      size: map['size'] ?? 0,
-      lastModified: map['lastModified'] ?? 0,
+      name: name,
+      isDirectory: map['isDirectory'] as bool,
+      size: map['size'] as int? ?? 0,
+      lastModified: map['lastModified'] as int? ?? 0,
+      fullPath: fullPath,
     );
   }
 }
@@ -81,7 +89,7 @@ class _NasFileBrowserScreenState extends State<NasFileBrowserScreen> {
       });
 
       setState(() {
-        _files = files.map((file) => SmbNativeFile.fromMap(file)).toList();
+        _files = files.map((file) => SmbNativeFile.fromMap(file, _currentPath)).toList();
         _isLoading = false;
       });
     } on PlatformException catch (e) {

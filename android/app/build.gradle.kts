@@ -42,15 +42,15 @@ android {
 }
 
 dependencies {
-    implementation(files("libs/jcifs-ng-2.1.9.jar"))
+    implementation("eu.agno3.jcifs:jcifs-ng:2.1.10")
     implementation("org.slf4j:slf4j-api:1.7.32")
     implementation("org.slf4j:slf4j-simple:1.7.32")
-    implementation("org.bouncycastle:bcprov-jdk15on:1.68")
+
     implementation("org.nanohttpd:nanohttpd:2.3.1")
     implementation("androidx.localbroadcastmanager:localbroadcastmanager:1.1.0")
 }
 
 configurations.all {
-    resolutionStrategy.force("eu.agno3.jcifs:jcifs-ng:2.1.9")
+    resolutionStrategy.force("eu.agno3.jcifs:jcifs-ng:2.1.10")
 }
 

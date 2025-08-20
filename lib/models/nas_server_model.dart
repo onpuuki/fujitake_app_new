@@ -66,7 +66,7 @@ class NasServer {
       'httpPort': httpPort,
       'username': username,
       'password': password,
-      'shareName': shareName,
+      'shareName': shareName ?? '',
     };
   }
 
@@ -81,7 +81,7 @@ class NasServer {
       httpPort: json['httpPort'],
       username: json['username'],
       password: json['password'],
-      shareName: json['shareName'],
+      shareName: json['shareName'] ?? '',
     );
   }
 

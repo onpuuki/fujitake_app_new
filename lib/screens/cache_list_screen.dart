@@ -5,6 +5,7 @@ import '../services/database_service.dart';
 import '../services/cache_path_service.dart';
 import '../services/nas_server_service.dart';
 
+import './debug_log_screen.dart';
 
 class CacheListScreen extends StatefulWidget {
   const CacheListScreen({super.key});
@@ -32,6 +33,17 @@ class _CacheListScreenState extends State<CacheListScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('キャッシュ一覧'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.bug_report),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const DebugLogScreen()),
+              );
+            },
+          ),
+        ],
       ),
       body: FutureBuilder<List<CacheJob>>(
         future: _cacheJobsFuture,
@@ -61,6 +73,8 @@ class _CacheListScreenState extends State<CacheListScreen> {
                     ),
                     const SizedBox(height: 4),
                     Text('ステータス: ${job.status}'),
+                    Text('進行状況: ${(job.downloadedSize / 1024 / 1024).toStringAsFixed(2)}MB / ${(job.totalSize / 1024 / 1024).toStringAsFixed(2)}MB'),
+
                   ],
                 ),
                 trailing: IconButton(

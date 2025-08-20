@@ -51,6 +51,12 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
           'path': widget.imagePath,
           'domain': widget.server.domain,
         });
+
+        // 取得した画像をキャッシュに保存
+        await localFile.parent.create(recursive: true);
+        await localFile.writeAsBytes(imageBytes);
+        print("画像をキャッシュに保存しました: $localPath");
+
         return imageBytes;
       } on PlatformException catch (e) {
         throw Exception('Failed to load image bytes: ${e.message}');

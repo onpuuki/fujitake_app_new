@@ -269,6 +269,27 @@ class MainActivity: FlutterActivity() {
                         }
                     }
                 }
+                "downloadFile" -> {
+                    val host = call.argument<String>("host")!!
+                    val shareName = call.argument<String>("shareName")!!
+                    val remotePath = call.argument<String>("remotePath")!!
+                    val localPath = call.argument<String>("localPath")!!
+                    val username = call.argument<String>("username")
+                    val password = call.argument<String>("password")
+                    
+                    CoroutineScope(Dispatchers.IO).launch {
+                        try {
+                            downloadSmbFile(host, shareName, username, password, remotePath, localPath)
+                            withContext(Dispatchers.Main) {
+                                result.success(null)
+                            }
+                        } catch (e: Exception) {
+                            withContext(Dispatchers.Main) {
+                                result.error("SMB_DOWNLOAD_ERROR", e.message, e.toString())
+                            }
+                        }
+                    }
+                }
                 "readFile" -> {
                     val host = call.argument<String>("host")
                     val shareName = call.argument<String>("shareName")
@@ -458,6 +479,20 @@ class MainActivity: FlutterActivity() {
     }
 
 
+    private fun downloadSmbFile(host: String, shareName: String, username: String?, password: String?, remotePath: String, localPath: String) {
+        val context = createCifsContext(null, username, password)
+        val smbFile = SmbFile("smb://$host/$shareName/$remotePath", context)
+
+        val localFile = File(localPath)
+        localFile.parentFile?.mkdirs()
+
+        smbFile.inputStream.use { input ->
+            FileOutputStream(localFile).use { output ->
+                input.copyTo(output)
+            }
+        }
+    }
+
     private fun createCifsContext(domain: String?, user: String?, pass: String?): CIFSContext {
         val prop = Properties().apply {
             setProperty("jcifs.smb.client.ntlm.v2", "true")
@@ -527,6 +562,8 @@ class MainActivity: FlutterActivity() {
                 smbFile.inputStream.use { input ->
                     FileOutputStream(tempFile).use { output ->
                         input.copyTo(output)
+
+
                     }
                 }
 

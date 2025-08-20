@@ -106,9 +106,11 @@ class CacheDownloaderService {
 
       // 実際のダウンロード処理
       final cachePathService = CachePathService.instance;
+      int downloadCount = 0;
       for (final file in filesToCache) {
         final remoteFilePath = file.fullPath;
         final localFilePath = await cachePathService.getLocalPath(server.id, remoteFilePath);
+        LogService.instance.add('[_processPendingJobs] Downloading: "$remoteFilePath" -> "$localFilePath"');
 
         try {
           await _smbChannel.invokeMethod('downloadFile', {
@@ -120,15 +122,21 @@ class CacheDownloaderService {
             'localPath': localFilePath,
           });
 
-          // ダウンロード成功後、進捗を更新
           jobToProcess.downloadedSize += file.size;
-          await dbService.updateCacheJob(jobToProcess);
+          downloadCount++;
 
-        } catch (e) {
-          print('Failed to download file $remoteFilePath: $e');
+          // 10ファイルごと、または最後のファイルの場合に進捗をDBに保存
+          if (downloadCount % 10 == 0 || file == filesToCache.last) {
+            await dbService.updateCacheJob(jobToProcess);
+          }
+
+        } catch (e, stacktrace) {
+          final errorMsg = 'Failed to download file $remoteFilePath to $localFilePath. Error: $e';
+          print(errorMsg);
+          LogService.instance.add('[_processPendingJobs] $errorMsg');
+          LogService.instance.add('[_processPendingJobs] Stacktrace: $stacktrace');
           _updateJobStatus(jobToProcess, 'failed');
           await dbService.updateCacheJob(jobToProcess);
-          // 1つのファイルで失敗したらジョブ全体を失敗させてループを抜ける
           _isProcessing = false;
           return;
         }

@@ -67,14 +67,13 @@
             </intent-filter>
         </activity>
 
-        <receiver
-            android:name=".PipControlReceiver"
-            android:exported="true">
         <service
             android:name="com.pravera.flutter_foreground_task.service.ForegroundService"
             android:exported="false"
             android:stopWithTask="true" />
-
+        <receiver
+            android:name=".PipControlReceiver"
+            android:exported="true">
             <intent-filter>
                 <action android:name="pip_control" />
             </intent-filter>

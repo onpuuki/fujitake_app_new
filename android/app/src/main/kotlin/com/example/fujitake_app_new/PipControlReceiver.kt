@@ -1,3 +1,4 @@
+/*
 package com.example.fujitake_app_new
 
 import android.content.BroadcastReceiver
@@ -20,3 +21,4 @@ class PipControlReceiver : BroadcastReceiver() {
         context.sendBroadcast(internalIntent)
     }
 }
+*/

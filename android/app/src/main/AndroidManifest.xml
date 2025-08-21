@@ -7,6 +7,7 @@
     <uses-permission android:name="android.permission.CAMERA"/>
     <uses-permission android:name="android.permission.INTERNET"/>
 
+
     <!-- Android 13 (API 33) 以降の場合、READ_MEDIA_IMAGES も必要になることがあります -->
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES"/>
     <uses-permission android:name="android.permission.READ_MEDIA_VIDEO"/>

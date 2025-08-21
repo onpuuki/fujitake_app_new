@@ -105,7 +105,7 @@ class _NasServerEditScreenState extends State<NasServerEditScreen> {
               initialValue: _host,
               decoration: const InputDecoration(labelText: 'ホスト名 / IPアドレス'),
               validator: (value) => value!.isEmpty ? 'ホスト名を入力してください' : null,
-              onSaved: (value) => _host = value!,
+              onSaved: (value) => _host = value!.trim(),
             ),
             TextFormField(
               initialValue: _port?.toString(),

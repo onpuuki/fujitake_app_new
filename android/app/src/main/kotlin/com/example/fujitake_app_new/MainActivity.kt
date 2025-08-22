@@ -119,6 +119,27 @@ class MainActivity: FlutterActivity() {
         try {
             Security.addProvider(BouncyCastleProvider())
             sendDebugLog("BouncyCastleProvider added successfully.")
+            
+            // Start of diagnostic code
+            val bcProvider = Security.getProvider("BC")
+            if (bcProvider != null) {
+                val services = bcProvider.services
+                val algorithms = services.map { it.algorithm }.sorted().distinct()
+                sendDebugLog("Bouncy Castle Provider Services (${services.size}):")
+                for (service in services.sortedBy { it.type + ":" + it.algorithm }) {
+                    sendDebugLog("  - Type: ${service.type}, Algorithm: ${service.algorithm}")
+                }
+                sendDebugLog("All distinct algorithms provided by BC: ${algorithms.joinToString(", ")}")
+                if (algorithms.contains("MD4")) {
+                    sendDebugLog("Diagnosis: MD4 algorithm IS listed by the BC provider.")
+                } else {
+                    sendDebugLog("Diagnosis: MD4 algorithm IS NOT listed by the BC provider.")
+                }
+            } else {
+                sendDebugLog("Diagnosis: Bouncy Castle provider is not registered at all.")
+            }
+            // End of diagnostic code
+
             Security.getProvider("BC")?.let {
                 sendDebugLog("Security.getProvider(\"BC\") successful. Provider: ${it.name}, Version: ${it.version}")
             } ?: sendDebugLog("Security.getProvider(\"BC\") returned null.")

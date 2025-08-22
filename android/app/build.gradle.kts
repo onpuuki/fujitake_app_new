@@ -42,15 +42,13 @@ android {
 }
 
 dependencies {
+    // Standard JCIFS-NG and Bouncy Castle provider
     implementation("eu.agno3.jcifs:jcifs-ng:2.1.10")
-    implementation("org.slf4j:slf4j-api:1.7.32")
-    implementation("org.slf4j:slf4j-simple:1.7.32")
+    implementation("org.bouncycastle:bcprov-jdk18on:1.78")
+    // Add slf4j-nop to satisfy JCIFS logging dependency without including a full logger
+    implementation("org.slf4j:slf4j-nop:1.7.32")
 
     implementation("org.nanohttpd:nanohttpd:2.3.1")
     implementation("androidx.localbroadcastmanager:localbroadcastmanager:1.1.0")
-}
-
-configurations.all {
-    resolutionStrategy.force("eu.agno3.jcifs:jcifs-ng:2.1.10")
 }
 

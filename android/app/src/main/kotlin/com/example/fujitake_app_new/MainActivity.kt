@@ -545,6 +545,8 @@ class MainActivity: FlutterActivity() {
             setProperty("jcifs.smb.client.minVersion", "SMB202")
             setProperty("jcifs.smb.client.maxVersion", "SMB311")
             setProperty("jcifs.encoding", "UTF-8")
+            setProperty("jcifs.smb.client.responseTimeout", "10000") // 10 seconds
+            setProperty("jcifs.smb.client.soTimeout", "30000")       // 30 seconds
         }
         val bc = BaseContext(PropertyConfiguration(prop))
         return if (user != null && pass != null && user.isNotEmpty()) {

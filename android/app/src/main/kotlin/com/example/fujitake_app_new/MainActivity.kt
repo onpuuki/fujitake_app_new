@@ -84,6 +84,13 @@ class MainActivity: FlutterActivity() {
         }
     }
 
+    private fun sendDebugLog(message: String) {
+        Log.d("BouncyCastleDebug", message)
+        activity.runOnUiThread {
+            methodChannel?.invokeMethod("onDebugLog", message)
+        }
+    }
+
     private val pipControlReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action != ACTION_PIP_CONTROL_INTERNAL) {
@@ -108,6 +115,16 @@ class MainActivity: FlutterActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        sendDebugLog("MainActivity.onCreate started.")
+        try {
+            Security.addProvider(BouncyCastleProvider())
+            sendDebugLog("BouncyCastleProvider added successfully.")
+            Security.getProvider("BC")?.let {
+                sendDebugLog("Security.getProvider(\"BC\") successful. Provider: ${it.name}, Version: ${it.version}")
+            } ?: sendDebugLog("Security.getProvider(\"BC\") returned null.")
+        } catch (e: Exception) {
+            sendDebugLog("Error adding BouncyCastleProvider: ${e.message}")
+        }
         super.onCreate(savedInstanceState)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             registerReceiver(pipControlReceiver, IntentFilter(MainActivity.ACTION_PIP_CONTROL_INTERNAL), RECEIVER_NOT_EXPORTED)
@@ -118,7 +135,6 @@ class MainActivity: FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
-        Security.addProvider(BouncyCastleProvider())
 
         streamingServer = StreamingServer()
         streamingServer?.start()
@@ -494,6 +510,14 @@ class MainActivity: FlutterActivity() {
     }
 
     private fun createCifsContext(domain: String?, user: String?, pass: String?): CIFSContext {
+        sendDebugLog("createCifsContext called.")
+        Security.getProvider("BC")?.let {
+            sendDebugLog("Provider 'BC' found in createCifsContext. Provider: ${it.name}")
+        } ?: sendDebugLog("Provider 'BC' NOT FOUND in createCifsContext.")
+        
+        val allProviders = Security.getProviders().joinToString(", ") { "${it.name} (v${it.version})" }
+        sendDebugLog("All registered providers: [$allProviders]")
+
         val prop = Properties().apply {
             setProperty("jcifs.smb.client.ntlm.v2", "true")
             setProperty("jcifs.smb.client.useNtlm2", "true")

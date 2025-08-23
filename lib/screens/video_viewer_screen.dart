@@ -31,18 +31,27 @@ class _VideoViewerScreenState extends State<VideoViewerScreen> {
   bool _showControls = true;
   bool _isInPipMode = false;
   Timer? _controlsTimer;
+  final List<String> _debugLogs = [];
 
   final MethodChannel _smbChannel = const MethodChannel('com.example.fujitake_app_new/smb');
 
   @override
   void initState() {
     super.initState();
+    _smbChannel.setMethodCallHandler(_handleMethodCalls);
     _initializePlayer();
-    _smbChannel.setMethodCallHandler(_handlePipMethodCalls);
   }
 
-  Future<void> _handlePipMethodCalls(MethodCall call) async {
+  Future<void> _handleMethodCalls(MethodCall call) async {
     switch (call.method) {
+      case 'onDebugLog':
+        final String log = call.arguments as String;
+        if (mounted) {
+          setState(() {
+            _debugLogs.add(log);
+          });
+        }
+        break;
       case 'onPipModeChanged':
         final bool isInPip = call.arguments as bool;
         if (_isInPipMode != isInPip) {
@@ -173,7 +182,34 @@ class _VideoViewerScreenState extends State<VideoViewerScreen> {
         child: _isLoading
             ? const Center(child: CircularProgressIndicator())
             : _error != null
-                ? Center(child: Text(_error!, style: const TextStyle(color: Colors.white)))
+                ? Center(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.all(16.0),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(
+                            _error!,
+                            style: const TextStyle(color: Colors.white, fontSize: 16),
+                          ),
+                          const SizedBox(height: 16),
+                          const Text(
+                            "--- 診断ログ ---",
+                            style: TextStyle(color: Colors.yellow, fontSize: 18, fontWeight: FontWeight.bold),
+                          ),
+                          const SizedBox(height: 8),
+                          Container(
+                            padding: const EdgeInsets.all(8.0),
+                            color: Colors.black.withOpacity(0.5),
+                            child: Text(
+                              _debugLogs.join('\n'),
+                              style: const TextStyle(color: Colors.yellow, fontFamily: 'monospace'),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  )
                 : OrientationBuilder(
                     builder: (context, orientation) {
                       return orientation == Orientation.portrait

@@ -10,11 +10,15 @@ import 'package:fujitake_app_new/services/firestore_service.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'dart:io'; // Platformをインポート
 import 'dart:convert';
+import 'package:flutter/services.dart';
+import 'package:fujitake_app_new/services/debug_log_service.dart';
+
 
 // Foreground Task Imports
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'services/foreground_task_handler.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
+
 
 // Firebase設定をCanvas環境から取得
 const String _firebaseConfigString = String.fromEnvironment(
@@ -62,6 +66,15 @@ Future<void> _initializeApp() async {
     // エラーハンドリングはここに残すことも可能ですが、
     // mainが同期的に実行されるため、UIでの表示方法は変更が必要
   }
+
+  // Add this section for debug log handling
+  const MethodChannel smbChannel = MethodChannel('com.example.fujitake_app_new/smb');
+  smbChannel.setMethodCallHandler((call) async {
+    if (call.method == 'onDebugLog') {
+      final String log = call.arguments as String;
+      DebugLogService().addLog(log);
+    }
+  });
 }
 
 // Foreground Task Initialization

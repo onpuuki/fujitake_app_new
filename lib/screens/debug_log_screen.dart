@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import '../services/log_service.dart';
+import '../services/debug_log_service.dart';
 
 class DebugLogScreen extends StatefulWidget {
   const DebugLogScreen({Key? key}) : super(key: key);
@@ -10,27 +10,26 @@ class DebugLogScreen extends StatefulWidget {
 }
 
 class _DebugLogScreenState extends State<DebugLogScreen> {
+  final DebugLogService _logService = DebugLogService();
   List<String> _logs = [];
 
   @override
   void initState() {
     super.initState();
-    _logs = LogService.instance.logs.value;
-    LogService.instance.logs.addListener(_loadLogs);
-  }
-
-  @override
-  void dispose() {
-    LogService.instance.logs.removeListener(_loadLogs);
-    super.dispose();
+    _loadLogs();
   }
 
   void _loadLogs() {
-    if (mounted) {
-      setState(() {
-        _logs = LogService.instance.logs.value;
-      });
-    }
+    setState(() {
+      _logs = _logService.getLogs();
+    });
+  }
+
+  void _clearLogs() {
+    setState(() {
+      _logService.clearLogs();
+      _logs = [];
+    });
   }
 
   @override
@@ -39,6 +38,16 @@ class _DebugLogScreenState extends State<DebugLogScreen> {
       appBar: AppBar(
         title: const Text('デバッグログ'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.delete),
+            onPressed: _clearLogs,
+            tooltip: 'ログを消去',
+          ),
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: _loadLogs,
+            tooltip: 'ログを更新',
+          ),
           IconButton(
             icon: const Icon(Icons.copy),
             onPressed: () {
@@ -49,19 +58,25 @@ class _DebugLogScreenState extends State<DebugLogScreen> {
               );
             },
           ),
-
         ],
       ),
-      body: ListView.builder(
-        itemCount: _logs.length,
-        itemBuilder: (context, index) {
-          final log = _logs[index];
-          return Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-            child: Text(log, style: const TextStyle(fontSize: 12)),
-          );
-        },
-      ),
+      body: _logs.isEmpty
+          ? const Center(
+              child: Text('ログはありません。'),
+            )
+          : ListView.builder(
+              padding: const EdgeInsets.all(8.0),
+              itemCount: _logs.length,
+              itemBuilder: (context, index) {
+                return Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4.0),
+                  child: Text(
+                    _logs[index],
+                    style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+                  ),
+                );
+              },
+            ),
     );
   }
 }

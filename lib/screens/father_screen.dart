@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:fujitake_app_new/screens/prompt_copy_screen.dart';
-import 'package:fujitake_app_new/screens/debug_screen.dart';
+import 'package:fujitake_app_new/screens/debug_log_screen.dart';
 import 'package:fujitake_app_new/screens/father_todo_list_screen.dart';
 import 'package:fujitake_app_new/screens/favorite_websites_list_screen.dart'; // インポート
 import 'package:fujitake_app_new/screens/nas_viewer_screen.dart';
@@ -122,7 +122,7 @@ class FatherScreen extends StatelessWidget {
                   onPressed: () {
                     Navigator.push(
                       context,
-                      MaterialPageRoute(builder: (context) => DebugScreen(pipLogs: pipLogs)),
+                      MaterialPageRoute(builder: (context) => const DebugLogScreen()),
                     );
                   },
                   style: ElevatedButton.styleFrom(

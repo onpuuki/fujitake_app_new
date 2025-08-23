@@ -14,16 +14,30 @@ class NasShareListScreen extends StatefulWidget {
 
 class _NasShareListScreenState extends State<NasShareListScreen> {
   Future<List<String>>? _sharesFuture;
+  final List<String> _debugLogs = [];
+  static const MethodChannel _smbChannel = MethodChannel('com.example.fujitake_app_new/smb');
 
   @override
   void initState() {
     super.initState();
+    _smbChannel.setMethodCallHandler(_handleMethodCalls);
     _sharesFuture = _listShares();
+  }
+
+  Future<void> _handleMethodCalls(MethodCall call) async {
+    if (call.method == 'onDebugLog') {
+      final String log = call.arguments as String;
+      if (mounted) {
+        setState(() {
+          _debugLogs.add(log);
+        });
+      }
+    }
   }
 
   Future<List<String>> _listShares() async {
     try {
-      final List<dynamic> shares = await MethodChannel('com.example.fujitake_app_new/smb').invokeMethod('listShares', {
+      final List<dynamic> shares = await _smbChannel.invokeMethod('listShares', {
         'host': widget.server.host,
         'username': widget.server.username,
         'password': widget.server.password,
@@ -57,10 +71,26 @@ class _NasShareListScreenState extends State<NasShareListScreen> {
             return const Center(child: CircularProgressIndicator());
           }
           if (snapshot.hasError) {
-            return Center(
-              child: Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Text('エラー: ${snapshot.error}'),
+            return SingleChildScrollView(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'エラー: ${snapshot.error}',
+                    style: const TextStyle(fontSize: 16, color: Colors.red),
+                  ),
+                  const SizedBox(height: 16),
+                  const Text(
+                    "--- 診断ログ ---",
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    _debugLogs.join('\n'),
+                    style: const TextStyle(fontFamily: 'monospace', backgroundColor: Colors.black12),
+                  ),
+                ],
               ),
             );
           }

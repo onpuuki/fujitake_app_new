@@ -56,3 +56,7 @@ flutter_linux_3.22.2-stable.tar.xz
 ngrok-stable-linux-amd64.zip
 ngrok.zip
 ngrok_download_page.html
+flutter_linux_3.22.2-stable.tar.xz.1
+node_modules/
+package-lock.json
+package.json

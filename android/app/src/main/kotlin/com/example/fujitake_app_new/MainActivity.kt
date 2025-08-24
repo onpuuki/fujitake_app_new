@@ -20,6 +20,8 @@ import androidx.core.app.NotificationCompat
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import io.flutter.plugin.common.MethodCall
+import io.flutter.plugin.common.MethodChannel.Result
 import java.io.File
 import java.io.FileOutputStream
 import java.security.Security
@@ -29,6 +31,7 @@ import jcifs.config.PropertyConfiguration
 import jcifs.context.BaseContext
 import jcifs.smb.NtlmPasswordAuthentication
 import jcifs.smb.SmbFile
+import java.net.URLEncoder
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -37,9 +40,10 @@ import org.bouncycastle.jce.provider.BouncyCastleProvider
 
 class MainActivity: FlutterActivity() {
     private val CHANNEL = "com.example.fujitake_app_new/smb"
-    private var streamingServer: StreamingServer? = null
+    
     private var methodChannel: MethodChannel? = null
     private var isPlaying = true
+
     private val scope = CoroutineScope(Dispatchers.IO)
     private var wakeLock: PowerManager.WakeLock? = null
     private lateinit var notificationManager: NotificationManager
@@ -104,7 +108,7 @@ class MainActivity: FlutterActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         methodChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
-        streamingServer = StreamingServer(this, ::createCifsContext)
+        
 
         notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         createNotificationChannel()
@@ -115,13 +119,14 @@ class MainActivity: FlutterActivity() {
                 "listFiles" -> handleListFiles(call, result)
                 "downloadFile" -> handleDownloadFile(call, result)
                 "enterPipMode" -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) enterPipMode()
-                "startStreaming" -> handleStartStreaming(call, result)
+                "listAllFilesRecursive" -> handleListAllFilesRecursive(call, result)
+                
                 else -> result.notImplemented()
             }
         }
     }
 
-    private fun handleListShares(call: MethodChannel.MethodCall, result: MethodChannel.Result) {
+    private fun handleListShares(call: MethodCall, result: Result) {
         val host = call.argument<String>("host")?.trim()
         if (host.isNullOrBlank()) {
             result.error("INVALID_ARGUMENTS", "Host is required.", null)
@@ -140,19 +145,19 @@ class MainActivity: FlutterActivity() {
                     .filter { it.isNotBlank() }
                 withContext(Dispatchers.Main) { result.success(shares) }
             } catch (e: Exception) {
-                withContext(Dispatchers.Main) { result.error("SMB_ERROR", "Failed to list shares: ${e.message}", e.toString()) }
+                withContext(Dispatchers.Main) { result.error("SMB_ERROR", "Failed to list shares: ${e.message}", e.stackTraceToString()) }
             }
         }
     }
 
-    private fun handleListFiles(call: MethodChannel.MethodCall, result: MethodChannel.Result) {
+    private fun handleListFiles(call: MethodCall, result: Result) {
         val host = call.argument<String>("host")?.trim()
         val shareName = call.argument<String>("shareName")?.trim()
         if (host.isNullOrBlank() || shareName.isNullOrBlank()) {
             result.error("INVALID_ARGUMENTS", "Host and shareName are required.", null)
             return
         }
-        val directoryPath = call.argument<String>("directoryPath") ?: ""
+        val directoryPath = call.argument<String>("path") ?: ""
         val username = call.argument<String>("username")
         val password = call.argument<String>("password")
         val domain = call.argument<String>("domain")
@@ -162,12 +167,12 @@ class MainActivity: FlutterActivity() {
                 val files = listSmbFiles(host, shareName, directoryPath, username, password, domain)
                 withContext(Dispatchers.Main) { result.success(files) }
             } catch (e: Exception) {
-                withContext(Dispatchers.Main) { result.error("SMB_ERROR", e.message, e.toString()) }
+                withContext(Dispatchers.Main) { result.error("SMB_ERROR", e.message, e.stackTraceToString()) }
             }
         }
     }
 
-    private fun handleDownloadFile(call: MethodChannel.MethodCall, result: MethodChannel.Result) {
+    private fun handleDownloadFile(call: MethodCall, result: Result) {
         val host = call.argument<String>("host")
         val shareName = call.argument<String>("shareName")
         val remotePath = call.argument<String>("remotePath")
@@ -185,34 +190,54 @@ class MainActivity: FlutterActivity() {
         result.success(null)
     }
     
-    private fun handleStartStreaming(call: MethodChannel.MethodCall, result: MethodChannel.Result) {
-        val smbUrl = call.argument<String>("smbUrl")
-        val fileName = call.argument<String>("fileName")
-        val domain = call.argument<String>("domain")
-        val username = call.argument<String>("username")
-        val password = call.argument<String>("password")
-        if (smbUrl == null || fileName == null) {
-            result.error("INVALID_ARGUMENTS", "smbUrl and fileName are required.", null)
-            return
-        }
-        val streamInfo = SmbStreamInfo(smbUrl, domain, username, password)
-        val playbackUrl = streamingServer!!.prepareStream(fileName, streamInfo)
-        result.success(playbackUrl)
-    }
+    
 
     private suspend fun listSmbFiles(host: String, shareName: String, directoryPath: String, username: String?, password: String?, domain: String?): List<Map<String, Any?>> {
         return withContext(Dispatchers.IO) {
+            sendDebugLog("listSmbFiles START: host=$host, shareName=$shareName, directoryPath=$directoryPath")
             val context = createCifsContext(domain, username, password)
-            val parentDir = SmbFile("smb://$host/$shareName/", context)
-            val dir = SmbFile(parentDir, directoryPath)
-            dir.listFiles()?.map {
-                mapOf(
-                    "name" to it.name.removeSuffix("/"),
-                    "isDirectory" to it.isDirectory,
-                    "size" to it.length(),
-                    "lastModified" to it.lastModified
-                )
-            } ?: emptyList()
+            
+            try {
+                val shareUrl = "smb://$host/${shareName.removeSuffix("/")}/"
+                var targetDir = SmbFile(shareUrl, context)
+                sendDebugLog("Base SmbFile path: ${targetDir.path}")
+
+                val pathComponents = directoryPath.split('/').filter { it.isNotEmpty() }
+                
+                pathComponents.forEach { component ->
+                    // 特殊文字を含むコンポーネントのみをエンコードする
+                    val processedComponent = if (component.any { char -> " []".indexOf(char) != -1 }) {
+                        URLEncoder.encode(component, "UTF-8").replace("+", "%20")
+                    } else {
+                        component
+                    }
+                    targetDir = SmbFile(targetDir, processedComponent)
+                    sendDebugLog("Incrementally built SmbFile path: ${targetDir.path}")
+                }
+
+                // ディレクトリをリスト表示する場合、パスの末尾は「/」で終わっている必要がある
+                if (pathComponents.isNotEmpty() && !targetDir.path.endsWith("/")) {
+                    targetDir = SmbFile(targetDir.path + "/", context)
+                }
+
+                sendDebugLog("Final constructed SmbFile path for listFiles: ${targetDir.path}")
+
+                val files = targetDir.listFiles()?.map {
+                    mapOf(
+                        "name" to it.name.removeSuffix("/"),
+                        "isDirectory" to it.isDirectory,
+                        "size" to it.length(),
+                        "lastModified" to it.lastModified
+                    )
+                } ?: emptyList()
+                
+                sendDebugLog("listFiles() SUCCEEDED. Found ${files.size} files in '${targetDir.path}'.")
+                files
+            } catch (e: Exception) {
+                sendDebugLog("Exception caught in listSmbFiles for '$directoryPath': ${e.message}")
+                sendDebugLog("Stack Trace: ${e.stackTraceToString()}")
+                throw e
+            }
         }
     }
     
@@ -225,7 +250,23 @@ class MainActivity: FlutterActivity() {
             updateNotification(0, remotePath)
             
             val context = createCifsContext(domain, username, password)
-            val smbFile = SmbFile("smb://$host/$shareName/$remotePath", context)
+            val shareUrl = "smb://$host/${shareName.removeSuffix("/")}/"
+            var smbFile = SmbFile(shareUrl, context)
+
+            val pathComponents = remotePath.split('/').filter { it.isNotEmpty() }
+            
+            pathComponents.forEach { component ->
+                // ダウンロードパスでも同様に、特殊文字を含むコンポーネントのみをエンコード
+                val processedComponent = if (component.any { char -> " []".indexOf(char) != -1 }) {
+                    URLEncoder.encode(component, "UTF-8").replace("+", "%20")
+                } else {
+                    component
+                }
+                smbFile = SmbFile(smbFile, processedComponent)
+            }
+            
+            sendDebugLog("Final download SmbFile path: ${smbFile.path}")
+
             val totalSize = smbFile.length()
             var downloadedSize = 0L
 
@@ -300,7 +341,7 @@ class MainActivity: FlutterActivity() {
     override fun onDestroy() {
         super.onDestroy()
         unregisterReceiver(pipControlReceiver)
-        streamingServer?.stop()
+        
     }
     
     private fun createCifsContext(domain: String?, user: String?, pass: String?): CIFSContext {
@@ -310,9 +351,11 @@ class MainActivity: FlutterActivity() {
             setProperty("jcifs.smb.client.useNtlm2", "true")
             setProperty("jcifs.smb.client.minVersion", "SMB202")
             setProperty("jcifs.smb.client.maxVersion", "SMB311")
-            setProperty("jcifs.encoding", "UTF-8")
-            setProperty("jcifs.smb.client.responseTimeout", "10000") // 10 seconds
-            setProperty("jcifs.smb.client.soTimeout", "30000")       // 30 seconds
+            setProperty("jcifs.util.encoding", "UTF-8")
+            setProperty("jcifs.smb.client.dfs.enabled", "false") // Disable DFS
+            setProperty("jcifs.smb.client.responseTimeout", "10000")
+            setProperty("jcifs.smb.client.soTimeout", "30000")
+            setProperty("jcifs.util.loglevel", "3")
         }
         val bc = BaseContext(PropertyConfiguration(prop))
         return if (user != null && pass != null && user.isNotEmpty()) {
@@ -357,3 +400,91 @@ class MainActivity: FlutterActivity() {
         notificationManager.notify(NOTIFICATION_ID, notification)
     }
 }
+
+    private suspend fun listAllFilesRecursive(host: String, shareName: String, directoryPath: String, username: String?, password: String?, domain: String?): List<Map<String, Any?>> {
+        return withContext(Dispatchers.IO) {
+            sendDebugLog("listAllFilesRecursive START: host=$host, shareName=$shareName, directoryPath=$directoryPath")
+            val context = createCifsContext(domain, username, password)
+            val allFiles = mutableListOf<Map<String, Any?>>()
+            val directoryQueue: Queue<String> = LinkedList()
+            directoryQueue.add(directoryPath)
+
+            while (directoryQueue.isNotEmpty()) {
+                val currentPath = directoryQueue.poll()
+                sendDebugLog("Processing directory in queue: $currentPath")
+                
+                try {
+                    val shareUrl = "smb://$host/${shareName.removeSuffix("/")}/"
+                    var targetDir = SmbFile(shareUrl, context)
+
+                    val pathComponents = currentPath.split('/').filter { it.isNotEmpty() }
+                    
+                    pathComponents.forEach { component ->
+                        val processedComponent = if (component.any { char -> " []".indexOf(char) != -1 }) {
+                            URLEncoder.encode(component, "UTF-8").replace("+", "%20")
+                        } else {
+                            component
+                        }
+                        targetDir = SmbFile(targetDir, processedComponent)
+                    }
+
+                    if (pathComponents.isNotEmpty() && !targetDir.path.endsWith("/")) {
+                        targetDir = SmbFile(targetDir.path + "/", context)
+                    }
+
+                    sendDebugLog("Listing files in: ${targetDir.path}")
+                    targetDir.listFiles()?.forEach { file ->
+                        val fileName = file.name.removeSuffix("/")
+                        val filePath = if (currentPath.isEmpty()) fileName else "$currentPath/$fileName"
+                        
+                        if (file.isDirectory) {
+                            sendDebugLog("Found directory: $filePath. Adding to queue.")
+                            directoryQueue.add(filePath)
+                        } else {
+                            sendDebugLog("Found file: $filePath")
+                            allFiles.add(mapOf(
+                                "path" to filePath,
+                                "size" to file.length(),
+                                "lastModified" to file.lastModified
+                            ))
+                        }
+                    }
+                } catch (e: Exception) {
+                    sendDebugLog("Error listing files for directory '$currentPath': ${e.message}")
+                    sendDebugLog("Stack Trace for '$currentPath': ${e.stackTraceToString()}")
+                    // エラーが発生しても、他のディレクトリのスキャンを続行
+                }
+            }
+            sendDebugLog("listAllFilesRecursive FINISHED. Found ${allFiles.size} total files.")
+            allFiles
+        }
+    }
+
+
+    private fun handleListAllFilesRecursive(call: MethodCall, result: Result) {
+        val host = call.argument<String>("host")
+        val shareName = call.argument<String>("shareName")
+        val directoryPath = call.argument<String>("directoryPath")
+        val username = call.argument<String>("username")
+        val password = call.argument<String>("password")
+        val domain = call.argument<String>("domain")
+
+        if (host == null || shareName == null || directoryPath == null) {
+            result.error("ARGUMENT_ERROR", "Missing required arguments", null)
+            return
+        }
+
+        scope.launch {
+            try {
+                val files = listAllFilesRecursive(host, shareName, directoryPath, username, password, domain)
+                withContext(Dispatchers.Main) {
+                    result.success(files)
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    result.error("SMB_ERROR", "Failed to list files recursively: ${e.message}", e.stackTraceToString())
+                }
+            }
+        }
+    }
+

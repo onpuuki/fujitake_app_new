@@ -155,45 +155,57 @@ class CacheDownloaderService {
   }
 
   Future<List<SmbNativeFile>> _listAllFilesRecursive(NasServer server, String path, bool recursive) async {
-    final List<SmbNativeFile> allFiles = [];
-    final List<String> directoriesToScan = [path];
-
-    while (directoriesToScan.isNotEmpty) {
-      final currentPath = directoriesToScan.removeAt(0);
-      DebugLogService().addLog('[_listAllFilesRecursive] Scanning directory: "$currentPath"');
-      try {
-        final normalizedPath = currentPath.replaceAll('\\', '/');
-        DebugLogService().addLog('[_listAllFilesRecursive] Normalized path for native call: "$normalizedPath"');
-
+    DebugLogService().addLog('[_listAllFilesRecursive] Starting recursive list for path: "$path"');
+    
+    if (!recursive) {
+        DebugLogService().addLog('[_listAllFilesRecursive] Non-recursive call. Listing files only in the root directory.');
+        // 非再帰の場合は、これまで通りlistFilesを呼び出すか、
+        // またはネイティブ側に新しいメソッドを作る必要があります。
+        // ここでは既存のlistFilesを使い、1階層のみ取得します。
         final List<dynamic> rawFiles = await _smbChannel.invokeMethod('listFiles', {
           'host': server.host,
           'shareName': server.shareName,
           'username': server.username,
           'password': server.password,
-          'path': normalizedPath,
+          'path': path,
         });
-
-        DebugLogService().addLog('[_listAllFilesRecursive] Native returned ${rawFiles.length} files/dirs for "$currentPath". Raw data: ${rawFiles.toString()}');
-
-        final files = rawFiles.map((file) => SmbNativeFile.fromMap(file, currentPath)).toList();
-        for (final file in files) {
-          if (file.isDirectory) {
-            if (recursive) {
-              directoriesToScan.add(p.join(currentPath, file.name));
-            }
-          } else {
-            allFiles.add(file);
-          }
-        }
-      } catch (e, stacktrace) {
-        final errorMessage = '[_listAllFilesRecursive] ERROR listing files for "$currentPath": ${e.toString()}';
-        DebugLogService().addLog(errorMessage);
-        DebugLogService().addLog('[_listAllFilesRecursive] Stacktrace: ${stacktrace.toString()}');
-        print(errorMessage); // 開発者向けにコンソールにも出力
-        // 特定のディレクトリで失敗しても処理を続ける
-      }
+        return rawFiles.map((file) => SmbNativeFile.fromMap(file, path)).where((f) => !f.isDirectory).toList();
     }
-    return allFiles;
+
+    try {
+      final List<dynamic> rawFiles = await _smbChannel.invokeMethod('listAllFilesRecursive', {
+        'host': server.host,
+        'shareName': server.shareName,
+        'username': server.username,
+        'password': server.password,
+        'directoryPath': path,
+      });
+
+      DebugLogService().addLog('[_listAllFilesRecursive] Native method returned ${rawFiles.length} files.');
+
+      final files = rawFiles.map((file) {
+          // ネイティブから返される'path'は既に親ディレクトリを含んでいるはず
+          final String fullPath = file['path'];
+          final String parentPath = p.dirname(fullPath);
+          return SmbNativeFile.fromMap(file, parentPath);
+      }).toList();
+
+      return files;
+    } catch (e, stacktrace) {
+      final errorMessage = '[_listAllFilesRecursive] ERROR calling native listAllFilesRecursive for "$path"';
+      DebugLogService().addLog(errorMessage);
+
+      if (e is PlatformException) {
+        DebugLogService().addLog('   PlatformException Message: ${e.message}');
+        DebugLogService().addLog('   PlatformException Details (Native Stacktrace): ${e.details}');
+      } else {
+        DebugLogService().addLog('   General Exception: ${e.toString()}');
+      }
+      
+      DebugLogService().addLog('   Dart Stacktrace: ${stacktrace.toString()}');
+      print('$errorMessage: $e');
+      return []; // エラーが発生した場合は空のリストを返す
+    }
   }
 
   void _updateJobStatus(CacheJob job, String newStatus) {

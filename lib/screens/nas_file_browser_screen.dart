@@ -30,9 +30,14 @@ class SmbNativeFile {
   });
 
   factory SmbNativeFile.fromMap(Map<dynamic, dynamic> map, String currentPath) {
-    final name = (map['name'] as String).replaceAll('\\', '/');
-    final normalizedCurrentPath = currentPath.replaceAll('\\', '/');
-    final fullPath = p.join(normalizedCurrentPath, name);
+    final name = (map['name'] as String);
+    
+    // パスの手動正規化と結合
+    String normalizedCurrentPath = currentPath.endsWith('/') ? currentPath : '$currentPath/';
+    if (currentPath.isEmpty) {
+      normalizedCurrentPath = '';
+    }
+    final fullPath = normalizedCurrentPath + name;
 
     return SmbNativeFile(
       name: name,
@@ -65,11 +70,28 @@ class _NasFileBrowserScreenState extends State<NasFileBrowserScreen> {
   SmbNativeFile? _fileToMove;
   String? _sourcePathForMove;
   final Map<String, Uint8List?> _thumbnailCache = {};
+  final List<String> _debugLogs = [];
 
   @override
   void initState() {
     super.initState();
+    _smbChannel.setMethodCallHandler(_handleNativeMethodCalls);
     _listFiles(path: '');
+  }
+
+  Future<dynamic> _handleNativeMethodCalls(MethodCall call) async {
+    switch (call.method) {
+      case 'onDebugLog':
+        if (mounted) {
+          setState(() {
+            _debugLogs.add(call.arguments as String);
+          });
+        }
+        break;
+      default:
+        // 他のメソッドコールがあればここで処理
+        break;
+    }
   }
 
   Future<void> _listFiles({String path = ''}) async {
@@ -106,14 +128,14 @@ class _NasFileBrowserScreenState extends State<NasFileBrowserScreen> {
   }
 
   Future<void> _openFile(SmbNativeFile file) async {
-    final remotePath = p.join(_currentPath, file.name);
-
     if (file.isDirectory) {
-      _listFiles(path: remotePath);
+      _listFiles(path: file.fullPath);
       return;
     }
 
+    final remotePath = file.fullPath;
     final fileExtension = p.extension(file.name).toLowerCase();
+    
     if (['.jpg', '.jpeg', '.png', '.gif', '.bmp'].contains(fileExtension)) {
       Navigator.push(
         context,
@@ -168,6 +190,11 @@ class _NasFileBrowserScreenState extends State<NasFileBrowserScreen> {
     return AppBar(
       title: Text(widget.server.nickname),
       actions: [
+        IconButton(
+          icon: const Icon(Icons.bug_report),
+          onPressed: _showDebugLogDialog,
+          tooltip: 'デバッグログを表示',
+        ),
         PopupMenuButton<String>(
           onSelected: (value) {
             if (value == 'cache_list') {
@@ -185,6 +212,26 @@ class _NasFileBrowserScreenState extends State<NasFileBrowserScreen> {
           ],
         ),
       ],
+    );
+  }
+
+  void _showDebugLogDialog() {
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('デバッグログ'),
+          content: SingleChildScrollView(
+            child: Text(_debugLogs.join('\n')),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('閉じる'),
+            ),
+          ],
+        );
+      },
     );
   }
 

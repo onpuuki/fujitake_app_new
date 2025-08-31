@@ -26,6 +26,9 @@ import java.io.File
 import java.io.FileOutputStream
 import java.security.Security
 import java.util.Properties
+import java.util.LinkedList
+import java.util.Queue
+
 import jcifs.CIFSContext
 import jcifs.config.PropertyConfiguration
 import jcifs.context.BaseContext
@@ -399,7 +402,6 @@ class MainActivity: FlutterActivity() {
             .build()
         notificationManager.notify(NOTIFICATION_ID, notification)
     }
-}
 
     private suspend fun listAllFilesRecursive(host: String, shareName: String, directoryPath: String, username: String?, password: String?, domain: String?): List<Map<String, Any?>> {
         return withContext(Dispatchers.IO) {
@@ -487,4 +489,5 @@ class MainActivity: FlutterActivity() {
             }
         }
     }
+}
 

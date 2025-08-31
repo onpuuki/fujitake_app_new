@@ -6,7 +6,7 @@ import 'package:video_player/video_player.dart';
 import '../services/cache_path_service.dart';
 import 'package:path/path.dart' as p;
 import '../models/nas_server_model.dart';
-
+import '../services/global_log.dart';
 
 class VideoViewerScreen extends StatefulWidget {
   final NasServer server;
@@ -23,7 +23,6 @@ class VideoViewerScreen extends StatefulWidget {
   @override
   State<VideoViewerScreen> createState() => _VideoViewerScreenState();
 }
-
 class _VideoViewerScreenState extends State<VideoViewerScreen> {
   VideoPlayerController? _controller;
   bool _isLoading = true;
@@ -31,7 +30,6 @@ class _VideoViewerScreenState extends State<VideoViewerScreen> {
   bool _showControls = true;
   bool _isInPipMode = false;
   Timer? _controlsTimer;
-  final List<String> _debugLogs = [];
 
   final MethodChannel _smbChannel = const MethodChannel('com.example.fujitake_app_new/smb');
 
@@ -48,7 +46,7 @@ class _VideoViewerScreenState extends State<VideoViewerScreen> {
         final String log = call.arguments as String;
         if (mounted) {
           setState(() {
-            _debugLogs.add(log);
+            GlobalLog.add(log);
           });
         }
         break;
@@ -206,7 +204,7 @@ class _VideoViewerScreenState extends State<VideoViewerScreen> {
                             padding: const EdgeInsets.all(8.0),
                             color: Colors.black.withOpacity(0.5),
                             child: Text(
-                              _debugLogs.join('\n'),
+                              GlobalLog.logs.join('\n'),
                               style: const TextStyle(color: Colors.yellow, fontFamily: 'monospace'),
                             ),
                           ),

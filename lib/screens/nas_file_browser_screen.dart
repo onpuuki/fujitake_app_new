@@ -11,6 +11,7 @@ import 'cache_list_screen.dart';
 import 'video_viewer_screen.dart';
 import '../models/cache_job_model.dart';
 import '../services/cache_downloader_service.dart';
+import '../services/global_log.dart';
 
 // ネイティブから受け取るファイル情報を表すクラス
 class SmbNativeFile {
@@ -57,7 +58,6 @@ class NasFileBrowserScreen extends StatefulWidget {
   @override
   State<NasFileBrowserScreen> createState() => _NasFileBrowserScreenState();
 }
-
 class _NasFileBrowserScreenState extends State<NasFileBrowserScreen> {
   static const _smbChannel = MethodChannel('com.example.fujitake_app_new/smb');
   final CacheDownloaderService _cacheDownloaderService = CacheDownloaderService.instance;
@@ -70,7 +70,6 @@ class _NasFileBrowserScreenState extends State<NasFileBrowserScreen> {
   SmbNativeFile? _fileToMove;
   String? _sourcePathForMove;
   final Map<String, Uint8List?> _thumbnailCache = {};
-  final List<String> _debugLogs = [];
 
   @override
   void initState() {
@@ -84,12 +83,11 @@ class _NasFileBrowserScreenState extends State<NasFileBrowserScreen> {
       case 'onDebugLog':
         if (mounted) {
           setState(() {
-            _debugLogs.add(call.arguments as String);
+            GlobalLog.add(call.arguments as String);
           });
         }
         break;
       default:
-        // 他のメソッドコールがあればここで処理
         break;
     }
   }
@@ -222,7 +220,7 @@ class _NasFileBrowserScreenState extends State<NasFileBrowserScreen> {
         return AlertDialog(
           title: const Text('デバッグログ'),
           content: SingleChildScrollView(
-            child: Text(_debugLogs.join('\n')),
+            child: Text(GlobalLog.logs.join('\n')),
           ),
           actions: [
             TextButton(

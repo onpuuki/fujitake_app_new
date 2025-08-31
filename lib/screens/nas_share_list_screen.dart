@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../models/nas_server_model.dart';
 import 'nas_file_browser_screen.dart';
+import '../services/global_log.dart';
 
 class NasShareListScreen extends StatefulWidget {
   final NasServer server;
@@ -11,10 +12,8 @@ class NasShareListScreen extends StatefulWidget {
   @override
   State<NasShareListScreen> createState() => _NasShareListScreenState();
 }
-
 class _NasShareListScreenState extends State<NasShareListScreen> {
   Future<List<String>>? _sharesFuture;
-  final List<String> _debugLogs = [];
   static const MethodChannel _smbChannel = MethodChannel('com.example.fujitake_app_new/smb');
 
   @override
@@ -29,7 +28,7 @@ class _NasShareListScreenState extends State<NasShareListScreen> {
       final String log = call.arguments as String;
       if (mounted) {
         setState(() {
-          _debugLogs.add(log);
+          GlobalLog.add(log);
         });
       }
     }
@@ -87,7 +86,7 @@ class _NasShareListScreenState extends State<NasShareListScreen> {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    _debugLogs.join('\n'),
+                    GlobalLog.logs.join('\n'),
                     style: const TextStyle(fontFamily: 'monospace', backgroundColor: Colors.black12),
                   ),
                 ],

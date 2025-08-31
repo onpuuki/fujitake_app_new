@@ -272,15 +272,22 @@ class MainActivity: FlutterActivity() {
         scope.launch {
             try {
                 val context = createCifsContext(domain, username, password)
-                val pathComponents = path.split('/').filter { it.isNotEmpty() }
-                val encodedPath = pathComponents.joinToString("/") { component ->
-                    URLEncoder.encode(component, "UTF-8").replace("+", "%20")
-                }
-                val fullPath = "smb://$host/${shareName.removeSuffix("/")}/$encodedPath"
-                sendDebugLog("WebServer: Attempting to access SmbFile at: $fullPath")
+                val shareUrl = "smb://$host/${shareName.removeSuffix("/")}/"
+                var smbFile = SmbFile(shareUrl, context)
+                sendDebugLog("WebServer: Base SmbFile path: ${smbFile.path}")
 
-                val smbFile = SmbFile(fullPath, context)
+                val pathComponents = path.split('/').filter { it.isNotEmpty() }
+                pathComponents.forEach { component ->
+                    smbFile = SmbFile(smbFile, "$component/")
+                    sendDebugLog("WebServer: Incrementally built SmbFile path: ${smbFile.path}")
+                }
                 
+                // The last component is the file, so remove the trailing slash
+                if (!smbFile.isDirectory) {
+                    smbFile = SmbFile(smbFile.path.removeSuffix("/"), context)
+                }
+                sendDebugLog("WebServer: Final SmbFile path for streaming: ${smbFile.path}")
+
                 streamingServers[fileName]?.stop()
                 streamingServers.remove(fileName)
 

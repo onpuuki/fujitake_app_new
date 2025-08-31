@@ -60,3 +60,7 @@ flutter_linux_3.22.2-stable.tar.xz.1
 node_modules/
 package-lock.json
 package.json
+android_sdk/
+android_sdk/
+flutter_linux_3.22.1-stable.tar.xz
+flutter_linux_3.22.1-stable.tar.xz

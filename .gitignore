@@ -50,6 +50,8 @@ google-chrome-stable_current_amd64.deb
 # Android SDK and tools
 android-sdk/
 cmdline-tools.zip
+android_sdk/
+flutter_linux_3.22.1-stable.tar.xz
 
 # Large files to ignore
 flutter_linux_3.22.2-stable.tar.xz

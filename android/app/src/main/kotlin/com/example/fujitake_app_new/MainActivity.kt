@@ -24,6 +24,7 @@ import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel.Result
 import java.io.File
 import android.net.Uri
+import android.webkit.MimeTypeMap
 import fi.iki.elonen.NanoHTTPD.IHTTPSession
 import fi.iki.elonen.NanoHTTPD.Response
 import fi.iki.elonen.NanoHTTPD.MIME_PLAINTEXT
@@ -286,7 +287,7 @@ class MainActivity: FlutterActivity() {
                     streamingServers.remove(fileName)
                 }
 
-                val server = WebServer(smbFile, applicationContext)
+                val server = WebServer(smbFile)
                 server.start()
                 streamingServers[fileName] = server
                 
@@ -610,14 +611,20 @@ class MainActivity: FlutterActivity() {
     }
 }
 
-class WebServer(private val smbFile: SmbFile, private val context: Context) : fi.iki.elonen.NanoHTTPD(0) {
+
+
+class WebServer(private val smbFile: SmbFile) : NanoHTTPD(0) {
     override fun serve(session: IHTTPSession): Response {
+        val fileName = smbFile.name
+        val mimeType = getMimeTypeFromExtension(fileName)
+        Log.d("WebServer", "Request for $fileName, MIME type: $mimeType")
+
         return try {
             val fileLength = smbFile.length()
-            val mimeType = context.applicationContext.contentResolver.getType(Uri.fromFile(File(smbFile.name))) ?: "application/octet-stream"
-
             val rangeHeader = session.headers["range"]
+
             if (rangeHeader != null && rangeHeader.startsWith("bytes=")) {
+                Log.d("WebServer", "Range request: $rangeHeader")
                 val range = rangeHeader.substring(6).split("-")
                 val start = range[0].toLong()
                 val end = if (range.size > 1 && range[1].isNotEmpty()) range[1].toLong() else fileLength - 1
@@ -629,8 +636,10 @@ class WebServer(private val smbFile: SmbFile, private val context: Context) : fi
                 response.addHeader("Content-Length", chunkLength.toString())
                 response.addHeader("Content-Range", "bytes $start-$end/$fileLength")
                 response.addHeader("Accept-Ranges", "bytes")
+                Log.d("WebServer", "Serving partial content, range $start-$end")
                 response
             } else {
+                Log.d("WebServer", "Serving full content")
                 val inputStream = smbFile.inputStream
                 val response = newChunkedResponse(Response.Status.OK, mimeType, inputStream)
                 response.addHeader("Content-Length", fileLength.toString())
@@ -641,6 +650,11 @@ class WebServer(private val smbFile: SmbFile, private val context: Context) : fi
             Log.e("WebServer", "Error serving file", e)
             newFixedLengthResponse(Response.Status.INTERNAL_ERROR, MIME_PLAINTEXT, "Error: ${e.message}")
         }
+    }
+
+    private fun getMimeTypeFromExtension(fileName: String): String {
+        val extension = MimeTypeMap.getFileExtensionFromUrl(fileName)
+        return MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension) ?: "application/octet-stream"
     }
 }
 

@@ -120,6 +120,7 @@ class MainActivity: FlutterActivity() {
                 "listShares" -> handleListShares(call, result)
                 "listFiles" -> handleListFiles(call, result)
                 "downloadFile" -> handleDownloadFile(call, result)
+                "readFile" -> handleReadFile(call, result)
                 "enterPipMode" -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) enterPipMode()
                 "listAllFilesRecursive" -> handleListAllFilesRecursive(call, result)
                 
@@ -193,6 +194,46 @@ class MainActivity: FlutterActivity() {
     }
     
     
+    private fun handleReadFile(call: MethodCall, result: Result) {
+        val host = call.argument<String>("host")
+        val shareName = call.argument<String>("shareName")
+        val remotePath = call.argument<String>("path")
+        val username = call.argument<String>("username")
+        val password = call.argument<String>("password")
+        val domain = call.argument<String>("domain")
+
+        if (host == null || shareName == null || remotePath == null) {
+            result.error("INVALID_ARGUMENTS", "Missing required arguments for readFile.", null)
+            return
+        }
+
+        scope.launch {
+            try {
+                val context = createCifsContext(domain, username, password)
+                
+                val pathComponents = remotePath.split('/').filter { it.isNotEmpty() }
+                val encodedPath = pathComponents.joinToString("/") { component ->
+                    if (component.any { char -> " []".indexOf(char) != -1 }) {
+                        URLEncoder.encode(component, "UTF-8").replace("+", "%20")
+                    } else {
+                        component
+                    }
+                }
+
+                val fullPath = "smb://$host/${shareName.removeSuffix("/")}/$encodedPath"
+                val smbFile = SmbFile(fullPath, context)
+
+                val bytes = smbFile.inputStream.use { it.readBytes() }
+                withContext(Dispatchers.Main) {
+                    result.success(bytes)
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    result.error("SMB_ERROR", "Failed to read file: ${e.message}", e.stackTraceToString())
+                }
+            }
+        }
+    }
 
     private suspend fun listSmbFiles(host: String, shareName: String, directoryPath: String, username: String?, password: String?, domain: String?): List<Map<String, Any?>> {
         return withContext(Dispatchers.IO) {
@@ -401,10 +442,7 @@ class MainActivity: FlutterActivity() {
             .build()
         notificationManager.notify(NOTIFICATION_ID, notification)
     }
-<<<<<<< HEAD
-=======
-}
->>>>>>> origin/main
+
 
     private suspend fun listAllFilesRecursive(host: String, shareName: String, directoryPath: String, username: String?, password: String?, domain: String?): List<Map<String, Any?>> {
         return withContext(Dispatchers.IO) {
@@ -492,8 +530,6 @@ class MainActivity: FlutterActivity() {
             }
         }
     }
-<<<<<<< HEAD
 }
-=======
->>>>>>> origin/main
+
 

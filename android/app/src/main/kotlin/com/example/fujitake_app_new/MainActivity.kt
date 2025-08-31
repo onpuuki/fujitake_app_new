@@ -271,9 +271,16 @@ class MainActivity: FlutterActivity() {
 
         scope.launch {
             try {
-                val smbFile = getSmbFile(host, shareName, path, username, password, domain)
+                val context = createCifsContext(domain, username, password)
+                val pathComponents = path.split('/').filter { it.isNotEmpty() }
+                val encodedPath = pathComponents.joinToString("/") { component ->
+                    URLEncoder.encode(component, "UTF-8").replace("+", "%20")
+                }
+                val fullPath = "smb://$host/${shareName.removeSuffix("/")}/$encodedPath"
+                sendDebugLog("WebServer: Attempting to access SmbFile at: $fullPath")
+
+                val smbFile = SmbFile(fullPath, context)
                 
-                // Stop any existing server for the same file
                 streamingServers[fileName]?.stop()
                 streamingServers.remove(fileName)
 
@@ -287,6 +294,7 @@ class MainActivity: FlutterActivity() {
                     result.success(streamingUrl)
                 }
             } catch (e: Exception) {
+                sendDebugLog("WebServer: [ERROR] in handleStartStreaming: ${e.message}\n${e.stackTraceToString()}")
                 withContext(Dispatchers.Main) {
                     result.error("STREAMING_ERROR", "Failed to start streaming server: ${e.message}", e.stackTraceToString())
                 }
@@ -600,19 +608,7 @@ class MainActivity: FlutterActivity() {
             }
         }
     }
-    private fun getSmbFile(host: String, shareName: String, path: String, username: String?, password: String?, domain: String?): SmbFile {
-        val context = createCifsContext(domain, username, password)
-        val pathComponents = path.split('/').filter { it.isNotEmpty() }
-        val encodedPath = pathComponents.joinToString("/") { component ->
-            if (component.any { char -> " []".indexOf(char) != -1 }) {
-                URLEncoder.encode(component, "UTF-8").replace("+", "%20")
-            } else {
-                component
-            }
-        }
-        val fullPath = "smb://$host/${shareName.removeSuffix("/")}/$encodedPath"
-        return SmbFile(fullPath, context)
-    }
+
 }
 
 

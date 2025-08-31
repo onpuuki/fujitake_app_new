@@ -108,7 +108,11 @@ class _VideoViewerScreenState extends State<VideoViewerScreen> {
     } catch (e, s) {
       if (mounted) {
         setState(() {
-          _error = '動画の読み込みに失敗しました: $e\n$s';
+          if (e is PlatformException) {
+            _error = '動画の読み込みに失敗しました (ネイティブエラー): ${e.message}\n${e.stacktrace}';
+          } else {
+            _error = '動画の読み込みに失敗しました: $e\n$s';
+          }
           _isLoading = false;
         });
       }

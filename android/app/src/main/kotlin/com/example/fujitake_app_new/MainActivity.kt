@@ -629,8 +629,9 @@ class WebServer(private val smbFile: SmbFile) : NanoHTTPD(0) {
                 val start = range[0].toLong()
                 val end = if (range.size > 1 && range[1].isNotEmpty()) range[1].toLong() else fileLength - 1
                 
+                val inputStream = smbFile.inputStream
+                inputStream.skip(start)
                 val chunkLength = end - start + 1
-                val inputStream = smbFile.inputStream.apply { skip(start) }
 
                 val response = newChunkedResponse(Response.Status.PARTIAL_CONTENT, mimeType, inputStream)
                 response.addHeader("Content-Length", chunkLength.toString())

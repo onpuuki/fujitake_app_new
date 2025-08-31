@@ -23,6 +23,10 @@ import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel.Result
 import java.io.File
+import android.net.Uri
+import fi.iki.elonen.NanoHTTPD.IHTTPSession
+import fi.iki.elonen.NanoHTTPD.Response
+import fi.iki.elonen.NanoHTTPD.MIME_PLAINTEXT
 
 import fi.iki.elonen.NanoHTTPD
 import java.io.InputStream
@@ -282,7 +286,7 @@ class MainActivity: FlutterActivity() {
                     streamingServers.remove(fileName)
                 }
 
-                val server = WebServer(smbFile)
+                val server = WebServer(smbFile, applicationContext)
                 server.start()
                 streamingServers[fileName] = server
                 
@@ -606,14 +610,36 @@ class MainActivity: FlutterActivity() {
     }
 }
 
-class WebServer(private val smbFile: SmbFile) : fi.iki.elonen.NanoHTTPD(0) {
-    override fun serve(session: fi.iki.elonen.NanoHTTPD.IHTTPSession): fi.iki.elonen.NanoHTTPD.Response {
+class WebServer(private val smbFile: SmbFile, private val context: Context) : fi.iki.elonen.NanoHTTPD(0) {
+    override fun serve(session: IHTTPSession): Response {
         return try {
-            val inputStream = smbFile.inputStream
-            val mimeType = "video/mp4" // You might want to determine this dynamically
-            newChunkedResponse(fi.iki.elonen.NanoHTTPD.Response.Status.OK, mimeType, inputStream)
+            val fileLength = smbFile.length()
+            val mimeType = context.applicationContext.contentResolver.getType(Uri.fromFile(File(smbFile.name))) ?: "application/octet-stream"
+
+            val rangeHeader = session.headers["range"]
+            if (rangeHeader != null && rangeHeader.startsWith("bytes=")) {
+                val range = rangeHeader.substring(6).split("-")
+                val start = range[0].toLong()
+                val end = if (range.size > 1 && range[1].isNotEmpty()) range[1].toLong() else fileLength - 1
+                
+                val chunkLength = end - start + 1
+                val inputStream = smbFile.inputStream.apply { skip(start) }
+
+                val response = newChunkedResponse(Response.Status.PARTIAL_CONTENT, mimeType, inputStream)
+                response.addHeader("Content-Length", chunkLength.toString())
+                response.addHeader("Content-Range", "bytes $start-$end/$fileLength")
+                response.addHeader("Accept-Ranges", "bytes")
+                response
+            } else {
+                val inputStream = smbFile.inputStream
+                val response = newChunkedResponse(Response.Status.OK, mimeType, inputStream)
+                response.addHeader("Content-Length", fileLength.toString())
+                response.addHeader("Accept-Ranges", "bytes")
+                response
+            }
         } catch (e: Exception) {
-            newFixedLengthResponse(fi.iki.elonen.NanoHTTPD.Response.Status.INTERNAL_ERROR, fi.iki.elonen.NanoHTTPD.MIME_PLAINTEXT, "Error streaming file.")
+            Log.e("WebServer", "Error serving file", e)
+            newFixedLengthResponse(Response.Status.INTERNAL_ERROR, MIME_PLAINTEXT, "Error: ${e.message}")
         }
     }
 }

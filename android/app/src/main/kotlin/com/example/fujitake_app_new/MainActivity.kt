@@ -122,6 +122,7 @@ class MainActivity: FlutterActivity() {
                 "downloadFile" -> handleDownloadFile(call, result)
                 "enterPipMode" -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) enterPipMode()
                 "listAllFilesRecursive" -> handleListAllFilesRecursive(call, result)
+"readFile" -> handleReadFile(call, result)
                 
                 else -> result.notImplemented()
             }
@@ -192,6 +193,49 @@ class MainActivity: FlutterActivity() {
         result.success(null)
     }
     
+
+private fun handleReadFile(call: MethodCall, result: Result) {
+    val host = call.argument<String>("host")
+    val shareName = call.argument<String>("shareName")
+    val remotePath = call.argument<String>("path")
+    val username = call.argument<String>("username")
+    val password = call.argument<String>("password")
+    val domain = call.argument<String>("domain")
+
+    if (host == null || shareName == null || remotePath == null) {
+        result.error("INVALID_ARGUMENTS", "Missing required arguments for readFile.", null)
+        return
+    }
+
+    scope.launch {
+        try {
+            val context = createCifsContext(domain, username, password)
+            val shareUrl = "smb://$host/${shareName.removeSuffix("/")}/"
+            var smbFile = SmbFile(shareUrl, context)
+
+            val pathComponents = remotePath.split('/').filter { it.isNotEmpty() }
+            
+            pathComponents.forEach { component ->
+                val processedComponent = if (component.any { char -> " []".indexOf(char) != -1 }) {
+                    URLEncoder.encode(component, "UTF-8").replace("+", "%20")
+                } else {
+                    component
+                }
+                smbFile = SmbFile(smbFile, processedComponent)
+            }
+
+            val bytes = smbFile.inputStream.readBytes()
+            withContext(Dispatchers.Main) {
+                result.success(bytes)
+            }
+        } catch (e: Exception) {
+            withContext(Dispatchers.Main) {
+                result.error("SMB_ERROR", "Failed to read file: ${e.message}", e.stackTraceToString())
+            }
+        }
+    }
+}
+
     
 
     private suspend fun listSmbFiles(host: String, shareName: String, directoryPath: String, username: String?, password: String?, domain: String?): List<Map<String, Any?>> {

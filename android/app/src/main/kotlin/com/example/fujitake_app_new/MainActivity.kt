@@ -23,6 +23,21 @@ import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel.Result
 import java.io.File
+import android.net.Uri
+import android.webkit.MimeTypeMap
+import fi.iki.elonen.NanoHTTPD.IHTTPSession
+import fi.iki.elonen.NanoHTTPD.Response
+import fi.iki.elonen.NanoHTTPD.MIME_PLAINTEXT
+
+import fi.iki.elonen.NanoHTTPD
+import java.io.IOException
+import java.io.InputStream
+
+
+
+
+
+
 import java.io.FileOutputStream
 import java.security.Security
 import java.util.Properties
@@ -123,6 +138,8 @@ class MainActivity: FlutterActivity() {
                 "readFile" -> handleReadFile(call, result)
                 "enterPipMode" -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) enterPipMode()
                 "listAllFilesRecursive" -> handleListAllFilesRecursive(call, result)
+                "startStreaming" -> handleStartStreaming(call, result)
+                "stopStreaming" -> handleStopStreaming(call, result)
                 
                 else -> result.notImplemented()
             }
@@ -233,6 +250,72 @@ class MainActivity: FlutterActivity() {
                 }
             }
         }
+    }
+
+
+    private val streamingServers = mutableMapOf<String, WebServer>()
+
+    private fun handleStartStreaming(call: MethodCall, result: Result) {
+        val host = call.argument<String>("host")
+        val shareName = call.argument<String>("shareName")
+        val path = call.argument<String>("path")
+        val username = call.argument<String>("username")
+        val password = call.argument<String>("password")
+        val fileName = call.argument<String>("fileName")
+        val domain = call.argument<String>("domain")
+
+        if (host == null || shareName == null || path == null || fileName == null) {
+            result.error("INVALID_ARGUMENTS", "Missing arguments for startStreaming", null)
+            return
+        }
+
+        scope.launch {
+            try {
+                val context = createCifsContext(domain, username, password)
+                val shareUrl = "smb://$host/${shareName.removeSuffix("/")}/"
+                var smbFile = SmbFile(shareUrl, context)
+                sendDebugLog("WebServer: Base SmbFile path: ${smbFile.path}")
+
+                val pathComponents = path.split('/').filter { it.isNotEmpty() }
+                pathComponents.forEach { component ->
+                    smbFile = SmbFile(smbFile, "$component/")
+                    sendDebugLog("WebServer: Incrementally built SmbFile path: ${smbFile.path}")
+                }
+                
+                // The last component is the file, so remove the trailing slash
+                if (!smbFile.isDirectory) {
+                    smbFile = SmbFile(smbFile.path.removeSuffix("/"), context)
+                }
+                sendDebugLog("WebServer: Final SmbFile path for streaming: ${smbFile.path}")
+
+                streamingServers[fileName]?.stop()
+                streamingServers.remove(fileName)
+
+                val server = WebServer(smbFile, this@MainActivity::sendDebugLog)
+                server.start()
+                streamingServers[fileName] = server
+                
+                val streamingUrl = "http://127.0.0.1:${server.listeningPort}"
+                
+                withContext(Dispatchers.Main) {
+                    result.success(streamingUrl)
+                }
+            } catch (e: Exception) {
+                sendDebugLog("WebServer: [ERROR] in handleStartStreaming: ${e.message}\n${e.stackTraceToString()}")
+                withContext(Dispatchers.Main) {
+                    result.error("STREAMING_ERROR", "Failed to start streaming server: ${e.message}", e.stackTraceToString())
+                }
+            }
+        }
+    }
+
+    private fun handleStopStreaming(call: MethodCall, result: Result) {
+        val fileName = call.argument<String>("fileName")
+        if (fileName != null && streamingServers.containsKey(fileName)) {
+            streamingServers[fileName]?.stop()
+            streamingServers.remove(fileName)
+        }
+        result.success(null)
     }
 
     private suspend fun listSmbFiles(host: String, shareName: String, directoryPath: String, username: String?, password: String?, domain: String?): List<Map<String, Any?>> {
@@ -492,6 +575,7 @@ class MainActivity: FlutterActivity() {
                             ))
                         }
                     }
+
                 } catch (e: Exception) {
                     sendDebugLog("Error listing files for directory '$currentPath': ${e.message}")
                     sendDebugLog("Stack Trace for '$currentPath': ${e.stackTraceToString()}")
@@ -512,6 +596,7 @@ class MainActivity: FlutterActivity() {
         val password = call.argument<String>("password")
         val domain = call.argument<String>("domain")
 
+
         if (host == null || shareName == null || directoryPath == null) {
             result.error("ARGUMENT_ERROR", "Missing required arguments", null)
             return
@@ -530,6 +615,80 @@ class MainActivity: FlutterActivity() {
             }
         }
     }
+
 }
+
+
+
+class WebServer(
+    private val smbFile: SmbFile,
+    private val log: (String) -> Unit
+) : NanoHTTPD(0) {
+    override fun serve(session: IHTTPSession): Response {
+        log("WebServer: Received request for ${smbFile.name}")
+        log("WebServer: Headers: ${session.headers}")
+
+        val mimeType = getMimeTypeFromExtension(smbFile.name)
+        log("WebServer: MIME type determined as: $mimeType")
+
+        var inputStream: InputStream? = null
+        try {
+            val fileLength = smbFile.length()
+            log("WebServer: File length: $fileLength bytes")
+            val rangeHeader = session.headers["range"]
+
+            if (rangeHeader != null && rangeHeader.startsWith("bytes=")) {
+                log("WebServer: Range request detected: $rangeHeader")
+                val range = rangeHeader.substring(6).split("-")
+                val start = range[0].toLong()
+                val end = if (range.size > 1 && range[1].isNotEmpty()) range[1].toLong() else fileLength - 1
+                
+                log("WebServer: Requested range: $start-$end")
+
+                inputStream = smbFile.inputStream
+                
+                var bytesToSkip = start
+                var totalSkipped = 0L
+                log("WebServer: Starting robust skip. Need to skip $bytesToSkip bytes.")
+                while (bytesToSkip > 0) {
+                    val skipped = inputStream.skip(bytesToSkip)
+                    if (skipped <= 0) {
+                        log("WebServer: Skip failed. inputStream.skip() returned $skipped.")
+                        throw IOException("Unable to skip to the specified position. Remained $bytesToSkip bytes.")
+                    }
+                    bytesToSkip -= skipped
+                    totalSkipped += skipped
+                    log("WebServer: Skipped $skipped bytes. Total skipped: $totalSkipped. Remaining: $bytesToSkip.")
+                }
+                log("WebServer: Robust skip finished successfully. Total skipped: $totalSkipped bytes.")
+
+                val chunkLength = end - start + 1
+                val response = newChunkedResponse(Response.Status.PARTIAL_CONTENT, mimeType, inputStream)
+                response.addHeader("Content-Length", chunkLength.toString())
+                response.addHeader("Content-Range", "bytes $start-$end/$fileLength")
+                response.addHeader("Accept-Ranges", "bytes")
+                log("WebServer: Serving partial content. Range: $start-$end, Length: $chunkLength")
+                return response
+            } else {
+                log("WebServer: Serving full content.")
+                inputStream = smbFile.inputStream
+                val response = newChunkedResponse(Response.Status.OK, mimeType, inputStream)
+                response.addHeader("Content-Length", fileLength.toString())
+                response.addHeader("Accept-Ranges", "bytes")
+                return response
+            }
+        } catch (e: Exception) {
+            log("WebServer: [ERROR] ${e.javaClass.simpleName}: ${e.message}\n${e.stackTraceToString()}")
+            inputStream?.close()
+            return newFixedLengthResponse(Response.Status.INTERNAL_ERROR, MIME_PLAINTEXT, "Error: ${e.message}")
+        }
+    }
+
+    private fun getMimeTypeFromExtension(fileName: String): String {
+        val extension = MimeTypeMap.getFileExtensionFromUrl(fileName)
+        return MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension) ?: "application/octet-stream"
+    }
+}
+
 
 

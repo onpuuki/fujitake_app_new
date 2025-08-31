@@ -23,6 +23,15 @@ import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel.Result
 import java.io.File
+
+import fi.iki.elonen.NanoHTTPD
+import java.io.InputStream
+
+
+
+
+
+
 import java.io.FileOutputStream
 import java.security.Security
 import java.util.Properties
@@ -123,6 +132,8 @@ class MainActivity: FlutterActivity() {
                 "readFile" -> handleReadFile(call, result)
                 "enterPipMode" -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) enterPipMode()
                 "listAllFilesRecursive" -> handleListAllFilesRecursive(call, result)
+                "startStreaming" -> handleStartStreaming(call, result)
+                "stopStreaming" -> handleStopStreaming(call, result)
                 
                 else -> result.notImplemented()
             }
@@ -233,6 +244,67 @@ class MainActivity: FlutterActivity() {
                 }
             }
         }
+    }
+
+
+    private val streamingServers = mutableMapOf<String, WebServer>()
+
+    private fun handleStartStreaming(call: MethodCall, result: Result) {
+        val host = call.argument<String>("host")
+        val shareName = call.argument<String>("shareName")
+        val remotePath = call.argument<String>("path")
+        val username = call.argument<String>("username")
+        val password = call.argument<String>("password")
+        val domain = call.argument<String>("domain")
+        val fileName = call.argument<String>("fileName")
+
+        if (host == null || shareName == null || remotePath == null || fileName == null) {
+            result.error("INVALID_ARGUMENTS", "Missing required arguments for startStreaming.", null)
+            return
+        }
+
+        scope.launch {
+            try {
+                val context = createCifsContext(domain, username, password)
+                val pathComponents = remotePath.split('/').filter { it.isNotEmpty() }
+                val encodedPath = pathComponents.joinToString("/") { component ->
+                    if (component.any { char -> " []".indexOf(char) != -1 }) {
+                        URLEncoder.encode(component, "UTF-8").replace("+", "%20")
+                    } else {
+                        component
+                    }
+                }
+                val fullPath = "smb://$host/${shareName.removeSuffix("/")}/$encodedPath"
+                val smbFile = SmbFile(fullPath, context)
+
+                if (streamingServers.containsKey(fileName)) {
+                    streamingServers[fileName]?.stop()
+                    streamingServers.remove(fileName)
+                }
+
+                val server = WebServer(smbFile)
+                server.start()
+                streamingServers[fileName] = server
+                
+                val streamingUrl = "http://127.0.0.1:${server.listeningPort}"
+                withContext(Dispatchers.Main) {
+                    result.success(streamingUrl)
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    result.error("STREAMING_ERROR", "Failed to start streaming: ${e.message}", e.stackTraceToString())
+                }
+            }
+        }
+    }
+
+    private fun handleStopStreaming(call: MethodCall, result: Result) {
+        val fileName = call.argument<String>("fileName")
+        if (fileName != null && streamingServers.containsKey(fileName)) {
+            streamingServers[fileName]?.stop()
+            streamingServers.remove(fileName)
+        }
+        result.success(null)
     }
 
     private suspend fun listSmbFiles(host: String, shareName: String, directoryPath: String, username: String?, password: String?, domain: String?): List<Map<String, Any?>> {
@@ -492,6 +564,7 @@ class MainActivity: FlutterActivity() {
                             ))
                         }
                     }
+
                 } catch (e: Exception) {
                     sendDebugLog("Error listing files for directory '$currentPath': ${e.message}")
                     sendDebugLog("Stack Trace for '$currentPath': ${e.stackTraceToString()}")
@@ -512,6 +585,7 @@ class MainActivity: FlutterActivity() {
         val password = call.argument<String>("password")
         val domain = call.argument<String>("domain")
 
+
         if (host == null || shareName == null || directoryPath == null) {
             result.error("ARGUMENT_ERROR", "Missing required arguments", null)
             return
@@ -531,5 +605,18 @@ class MainActivity: FlutterActivity() {
         }
     }
 }
+
+class WebServer(private val smbFile: SmbFile) : fi.iki.elonen.NanoHTTPD(0) {
+    override fun serve(session: fi.iki.elonen.NanoHTTPD.IHTTPSession): fi.iki.elonen.NanoHTTPD.Response {
+        return try {
+            val inputStream = smbFile.inputStream
+            val mimeType = "video/mp4" // You might want to determine this dynamically
+            newChunkedResponse(fi.iki.elonen.NanoHTTPD.Response.Status.OK, mimeType, inputStream)
+        } catch (e: Exception) {
+            newFixedLengthResponse(fi.iki.elonen.NanoHTTPD.Response.Status.INTERNAL_ERROR, fi.iki.elonen.NanoHTTPD.MIME_PLAINTEXT, "Error streaming file.")
+        }
+    }
+}
+
 
 

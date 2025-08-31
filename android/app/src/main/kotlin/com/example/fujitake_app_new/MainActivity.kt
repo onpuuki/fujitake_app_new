@@ -30,6 +30,7 @@ import fi.iki.elonen.NanoHTTPD.Response
 import fi.iki.elonen.NanoHTTPD.MIME_PLAINTEXT
 
 import fi.iki.elonen.NanoHTTPD
+import java.io.IOException
 import java.io.InputStream
 
 
@@ -619,37 +620,48 @@ class WebServer(private val smbFile: SmbFile) : NanoHTTPD(0) {
         val mimeType = getMimeTypeFromExtension(fileName)
         Log.d("WebServer", "Request for $fileName, MIME type: $mimeType")
 
-        return try {
+        var inputStream: InputStream? = null
+        try {
             val fileLength = smbFile.length()
             val rangeHeader = session.headers["range"]
 
             if (rangeHeader != null && rangeHeader.startsWith("bytes=")) {
                 Log.d("WebServer", "Range request: $rangeHeader")
                 val range = rangeHeader.substring(6).split("-")
-                val start = range[0].toLong()
+                var start = range[0].toLong()
                 val end = if (range.size > 1 && range[1].isNotEmpty()) range[1].toLong() else fileLength - 1
                 
-                val inputStream = smbFile.inputStream
-                inputStream.skip(start)
-                val chunkLength = end - start + 1
+                inputStream = smbFile.inputStream
+                
+                // Robust skip
+                var bytesToSkip = start
+                while (bytesToSkip > 0) {
+                    val skipped = inputStream.skip(bytesToSkip)
+                    if (skipped <= 0) {
+                        throw IOException("Unable to skip to the specified position.")
+                    }
+                    bytesToSkip -= skipped
+                }
 
+                val chunkLength = end - start + 1
                 val response = newChunkedResponse(Response.Status.PARTIAL_CONTENT, mimeType, inputStream)
                 response.addHeader("Content-Length", chunkLength.toString())
                 response.addHeader("Content-Range", "bytes $start-$end/$fileLength")
                 response.addHeader("Accept-Ranges", "bytes")
                 Log.d("WebServer", "Serving partial content, range $start-$end")
-                response
+                return response
             } else {
                 Log.d("WebServer", "Serving full content")
-                val inputStream = smbFile.inputStream
+                inputStream = smbFile.inputStream
                 val response = newChunkedResponse(Response.Status.OK, mimeType, inputStream)
                 response.addHeader("Content-Length", fileLength.toString())
                 response.addHeader("Accept-Ranges", "bytes")
-                response
+                return response
             }
         } catch (e: Exception) {
             Log.e("WebServer", "Error serving file", e)
-            newFixedLengthResponse(Response.Status.INTERNAL_ERROR, MIME_PLAINTEXT, "Error: ${e.message}")
+            inputStream?.close()
+            return newFixedLengthResponse(Response.Status.INTERNAL_ERROR, MIME_PLAINTEXT, "Error: ${e.message}")
         }
     }
 

@@ -441,15 +441,15 @@ class MainActivity: FlutterActivity() {
     @RequiresApi(Build.VERSION_CODES.O)
     private fun createPipActions(): List<RemoteAction> {
         val playPauseIntent = Intent(ACTION_PIP_CONTROL_INTERNAL).putExtra(EXTRA_CONTROL_TYPE, CONTROL_TYPE_PLAY_PAUSE)
-        val playPausePendingIntent = PendingIntent.getBroadcast(this, CONTROL_TYPE_PLAY_PAUSE, playPauseIntent, PendingIntent.FLAG_IMMUTABLE)
+        val playPausePendingIntent = PendingIntent.getBroadcast(this, 1, playPauseIntent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         val playPauseIcon = if (isPlaying) Icon.createWithResource(this, R.drawable.ic_pause) else Icon.createWithResource(this, R.drawable.ic_play)
         
         val rewindIntent = Intent(ACTION_PIP_CONTROL_INTERNAL).putExtra(EXTRA_CONTROL_TYPE, CONTROL_TYPE_REWIND)
-        val rewindPendingIntent = PendingIntent.getBroadcast(this, CONTROL_TYPE_REWIND, rewindIntent, PendingIntent.FLAG_IMMUTABLE)
+        val rewindPendingIntent = PendingIntent.getBroadcast(this, 2, rewindIntent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         val rewindIcon = Icon.createWithResource(this, R.drawable.ic_rewind)
         
         val forwardIntent = Intent(ACTION_PIP_CONTROL_INTERNAL).putExtra(EXTRA_CONTROL_TYPE, CONTROL_TYPE_FORWARD)
-        val forwardPendingIntent = PendingIntent.getBroadcast(this, CONTROL_TYPE_FORWARD, forwardIntent, PendingIntent.FLAG_IMMUTABLE)
+        val forwardPendingIntent = PendingIntent.getBroadcast(this, 3, forwardIntent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         val forwardIcon = Icon.createWithResource(this, R.drawable.ic_forward)
         
         return listOf(

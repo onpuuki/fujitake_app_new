@@ -68,6 +68,7 @@ class MainActivity: FlutterActivity() {
     private val CHANNEL_ID = "download_channel"
 
     companion object {
+        const val ACTION_PIP_CONTROL = "com.example.fujitake_app_new.PIP_CONTROL"
         const val ACTION_PIP_CONTROL_INTERNAL = "com.example.fujitake_app_new.PIP_CONTROL_INTERNAL"
         const val EXTRA_CONTROL_TYPE = "control_type"
         const val CONTROL_TYPE_PLAY_PAUSE = 1
@@ -115,6 +116,11 @@ class MainActivity: FlutterActivity() {
         } catch (e: Exception) {
             sendDebugLog("Error adding BouncyCastleProvider: ${e.message}")
         }
+
+    }
+
+    override fun onResume() {
+        super.onResume()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             registerReceiver(pipControlReceiver, IntentFilter(ACTION_PIP_CONTROL_INTERNAL), RECEIVER_NOT_EXPORTED)
         } else {
@@ -122,7 +128,15 @@ class MainActivity: FlutterActivity() {
         }
     }
 
+
+    override fun onPause() {
+        super.onPause()
+        unregisterReceiver(pipControlReceiver)
+    }
+
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
+
         super.configureFlutterEngine(flutterEngine)
         methodChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
         
@@ -440,15 +454,15 @@ class MainActivity: FlutterActivity() {
     
     @RequiresApi(Build.VERSION_CODES.O)
     private fun createPipActions(): List<RemoteAction> {
-        val playPauseIntent = Intent(ACTION_PIP_CONTROL_INTERNAL).putExtra(EXTRA_CONTROL_TYPE, CONTROL_TYPE_PLAY_PAUSE)
+        val playPauseIntent = Intent(ACTION_PIP_CONTROL).putExtra(EXTRA_CONTROL_TYPE, CONTROL_TYPE_PLAY_PAUSE)
         val playPausePendingIntent = PendingIntent.getBroadcast(this, 1, playPauseIntent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         val playPauseIcon = if (isPlaying) Icon.createWithResource(this, R.drawable.ic_pause) else Icon.createWithResource(this, R.drawable.ic_play)
         
-        val rewindIntent = Intent(ACTION_PIP_CONTROL_INTERNAL).putExtra(EXTRA_CONTROL_TYPE, CONTROL_TYPE_REWIND)
+        val rewindIntent = Intent(ACTION_PIP_CONTROL).putExtra(EXTRA_CONTROL_TYPE, CONTROL_TYPE_REWIND)
         val rewindPendingIntent = PendingIntent.getBroadcast(this, 2, rewindIntent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         val rewindIcon = Icon.createWithResource(this, R.drawable.ic_rewind)
         
-        val forwardIntent = Intent(ACTION_PIP_CONTROL_INTERNAL).putExtra(EXTRA_CONTROL_TYPE, CONTROL_TYPE_FORWARD)
+        val forwardIntent = Intent(ACTION_PIP_CONTROL).putExtra(EXTRA_CONTROL_TYPE, CONTROL_TYPE_FORWARD)
         val forwardPendingIntent = PendingIntent.getBroadcast(this, 3, forwardIntent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         val forwardIcon = Icon.createWithResource(this, R.drawable.ic_forward)
         
@@ -688,7 +702,13 @@ class WebServer(
         val extension = MimeTypeMap.getFileExtensionFromUrl(fileName)
         return MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension) ?: "application/octet-stream"
     }
+
+
 }
+
+
+
+
 
 
 

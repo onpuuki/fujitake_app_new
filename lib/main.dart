@@ -70,7 +70,7 @@ Future<void> _initializeApp() async {
   // Add this section for debug log handling
   const MethodChannel smbChannel = MethodChannel('com.example.fujitake_app_new/smb');
   smbChannel.setMethodCallHandler((call) async {
-    if (call.method == 'onDebugLog') {
+    if (call.method == 'onDebugLog' || call.method == 'onPipLog') {
       final String log = call.arguments as String;
       DebugLogService().addLog(log);
     }

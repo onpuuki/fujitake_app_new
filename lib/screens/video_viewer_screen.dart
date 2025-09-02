@@ -441,12 +441,12 @@ class _VideoViewerScreenState extends State<VideoViewerScreen> {
   }
 
   Future<void> _togglePip() async {
-    if (_controller != null && _controller!.value.isPlaying) {
+    if (_controller != null) {
       setState(() {
         _showControls = false;
       });
       try {
-        await _smbChannel.invokeMethod('enterPictureInPictureMode');
+        await _smbChannel.invokeMethod('enterPipMode');
       } on PlatformException catch (e) {
         print("Error entering PiP mode: ${e.message}");
         // エラーが発生した場合、状態を元に戻す

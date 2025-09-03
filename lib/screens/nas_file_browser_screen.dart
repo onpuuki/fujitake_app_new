@@ -31,9 +31,9 @@ class SmbNativeFile {
   });
 
   factory SmbNativeFile.fromMap(Map<dynamic, dynamic> map, String currentPath) {
-    final name = (map['name'] as String);
+    // nullチェックを追加し、nullの場合は空文字列をデフォルト値とする
+    final name = map['name'] as String? ?? '';
     
-    // パスの手動正規化と結合
     String normalizedCurrentPath = currentPath.endsWith('/') ? currentPath : '$currentPath/';
     if (currentPath.isEmpty) {
       normalizedCurrentPath = '';
@@ -42,7 +42,8 @@ class SmbNativeFile {
 
     return SmbNativeFile(
       name: name,
-      isDirectory: map['isDirectory'] as bool,
+      // isDirectoryにもnullチェックを追加
+      isDirectory: map['isDirectory'] as bool? ?? false,
       size: map['size'] as int? ?? 0,
       lastModified: map['lastModified'] as int? ?? 0,
       fullPath: fullPath,
@@ -109,7 +110,10 @@ class _NasFileBrowserScreenState extends State<NasFileBrowserScreen> {
       });
 
       setState(() {
-        _files = files.map((file) => SmbNativeFile.fromMap(file, _currentPath)).toList();
+        _files = files
+            .map((file) => SmbNativeFile.fromMap(file, _currentPath))
+            .where((file) => file.name.isNotEmpty) // nameが空でないものだけをリストに追加
+            .toList();
         _isLoading = false;
       });
     } on PlatformException catch (e) {

@@ -68,6 +68,7 @@ class MainActivity: FlutterActivity() {
     private val CHANNEL_ID = "download_channel"
 
     companion object {
+        const val ACTION_PIP_CONTROL = "com.example.fujitake_app_new.PIP_CONTROL"
         const val ACTION_PIP_CONTROL_INTERNAL = "com.example.fujitake_app_new.PIP_CONTROL_INTERNAL"
         const val EXTRA_CONTROL_TYPE = "control_type"
         const val CONTROL_TYPE_PLAY_PAUSE = 1
@@ -91,8 +92,10 @@ class MainActivity: FlutterActivity() {
 
     private val pipControlReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
+            sendPipLog("onReceive called with action: ${intent?.action}")
             if (intent?.action != ACTION_PIP_CONTROL_INTERNAL) return
             val controlType = intent.getIntExtra(EXTRA_CONTROL_TYPE, 0)
+            sendPipLog("Control type: $controlType")
             when (controlType) {
                 CONTROL_TYPE_PLAY_PAUSE -> {
                     isPlaying = !isPlaying
@@ -115,6 +118,7 @@ class MainActivity: FlutterActivity() {
         } catch (e: Exception) {
             sendDebugLog("Error adding BouncyCastleProvider: ${e.message}")
         }
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             registerReceiver(pipControlReceiver, IntentFilter(ACTION_PIP_CONTROL_INTERNAL), RECEIVER_NOT_EXPORTED)
         } else {
@@ -122,7 +126,18 @@ class MainActivity: FlutterActivity() {
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+    }
+
+
+    override fun onPause() {
+        super.onPause()
+    }
+
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
+
         super.configureFlutterEngine(flutterEngine)
         methodChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
         
@@ -432,26 +447,30 @@ class MainActivity: FlutterActivity() {
 
     @RequiresApi(Build.VERSION_CODES.O)
     private fun updatePictureInPictureParams() {
+        sendPipLog("Updating PiP params, isPlaying: $isPlaying")
         val params = PictureInPictureParams.Builder()
             .setActions(createPipActions())
             .build()
         setPictureInPictureParams(params)
+        sendPipLog("PiP params updated successfully.")
     }
     
     @RequiresApi(Build.VERSION_CODES.O)
     private fun createPipActions(): List<RemoteAction> {
-        val playPauseIntent = Intent(ACTION_PIP_CONTROL_INTERNAL).putExtra(EXTRA_CONTROL_TYPE, CONTROL_TYPE_PLAY_PAUSE)
-        val playPausePendingIntent = PendingIntent.getBroadcast(this, CONTROL_TYPE_PLAY_PAUSE, playPauseIntent, PendingIntent.FLAG_IMMUTABLE)
+        sendPipLog("Creating PiP actions.")
+        val playPauseIntent = Intent(ACTION_PIP_CONTROL_INTERNAL).setPackage(this.packageName).putExtra(EXTRA_CONTROL_TYPE, CONTROL_TYPE_PLAY_PAUSE)
+        val playPausePendingIntent = PendingIntent.getBroadcast(this, 1, playPauseIntent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         val playPauseIcon = if (isPlaying) Icon.createWithResource(this, R.drawable.ic_pause) else Icon.createWithResource(this, R.drawable.ic_play)
         
-        val rewindIntent = Intent(ACTION_PIP_CONTROL_INTERNAL).putExtra(EXTRA_CONTROL_TYPE, CONTROL_TYPE_REWIND)
-        val rewindPendingIntent = PendingIntent.getBroadcast(this, CONTROL_TYPE_REWIND, rewindIntent, PendingIntent.FLAG_IMMUTABLE)
+        val rewindIntent = Intent(ACTION_PIP_CONTROL_INTERNAL).setPackage(this.packageName).putExtra(EXTRA_CONTROL_TYPE, CONTROL_TYPE_REWIND)
+        val rewindPendingIntent = PendingIntent.getBroadcast(this, 2, rewindIntent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         val rewindIcon = Icon.createWithResource(this, R.drawable.ic_rewind)
         
-        val forwardIntent = Intent(ACTION_PIP_CONTROL_INTERNAL).putExtra(EXTRA_CONTROL_TYPE, CONTROL_TYPE_FORWARD)
-        val forwardPendingIntent = PendingIntent.getBroadcast(this, CONTROL_TYPE_FORWARD, forwardIntent, PendingIntent.FLAG_IMMUTABLE)
+        val forwardIntent = Intent(ACTION_PIP_CONTROL_INTERNAL).setPackage(this.packageName).putExtra(EXTRA_CONTROL_TYPE, CONTROL_TYPE_FORWARD)
+        val forwardPendingIntent = PendingIntent.getBroadcast(this, 3, forwardIntent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         val forwardIcon = Icon.createWithResource(this, R.drawable.ic_forward)
         
+        sendPipLog("PiP actions created.")
         return listOf(
             RemoteAction(rewindIcon, "Rewind", "Rewind 10s", rewindPendingIntent),
             RemoteAction(playPauseIcon, if(isPlaying) "Pause" else "Play", "Toggle Play/Pause", playPausePendingIntent),
@@ -467,7 +486,6 @@ class MainActivity: FlutterActivity() {
     override fun onDestroy() {
         super.onDestroy()
         unregisterReceiver(pipControlReceiver)
-        
     }
     
     private fun createCifsContext(domain: String?, user: String?, pass: String?): CIFSContext {
@@ -688,7 +706,13 @@ class WebServer(
         val extension = MimeTypeMap.getFileExtensionFromUrl(fileName)
         return MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension) ?: "application/octet-stream"
     }
+
+
 }
+
+
+
+
 
 
 

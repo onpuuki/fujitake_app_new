@@ -26,6 +26,8 @@ import java.io.File
 import android.net.Uri
 import android.webkit.MimeTypeMap
 import fi.iki.elonen.NanoHTTPD.IHTTPSession
+
+
 import fi.iki.elonen.NanoHTTPD.Response
 import fi.iki.elonen.NanoHTTPD.MIME_PLAINTEXT
 
@@ -220,9 +222,8 @@ class MainActivity: FlutterActivity() {
             return
         }
         scope.launch {
-            startDownload(host, shareName, remotePath, localPath, username, password, domain)
+            startDownload(host, shareName, remotePath, localPath, username, password, domain, result)
         }
-        result.success(null)
     }
     
     
@@ -382,57 +383,85 @@ class MainActivity: FlutterActivity() {
         }
     }
     
-    private fun startDownload(host: String, shareName: String, remotePath: String, localPath: String, username: String?, password: String?, domain: String?) {
+    private suspend fun startDownload(host: String, shareName: String, remotePath: String, localPath: String, username: String?, password: String?, domain: String?, result: Result) {
+        val TAG_DOWNLOAD = "SMB_DOWNLOAD"
+        Log.d(TAG_DOWNLOAD, "--- Download Start ---")
+        Log.d(TAG_DOWNLOAD, "Remote Path: $remotePath")
+        Log.d(TAG_DOWNLOAD, "Local Path: $localPath")
+
         val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
         wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "FujitakeApp::DownloadWakelockTag")
         
+        var fileOutputStream: FileOutputStream? = null
+        var smbInputStream: InputStream? = null
+
         try {
             wakeLock?.acquire(10*60*1000L)
-            updateNotification(0, remotePath)
+            Log.d(TAG_DOWNLOAD, "WakeLock acquired.")
             
-            val context = createCifsContext(domain, username, password)
+            val prop = java.util.Properties()
+            prop["jcifs.smb.client.connTimeout"] = "15000"
+            prop["jcifs.smb.client.soTimeout"] = "20000"
+            prop["jcifs.smb.client.responseTimeout"] = "20000"
+            val config = jcifs.config.PropertyConfiguration(prop)
+            val context = BaseContext(config).withCredentials(jcifs.smb.NtlmPasswordAuthenticator(domain, username, password))
             val shareUrl = "smb://$host/${shareName.removeSuffix("/")}/"
-            var smbFile = SmbFile(shareUrl, context)
-
-            val pathComponents = remotePath.split('/').filter { it.isNotEmpty() }
             
-            pathComponents.forEach { component ->
-                // ダウンロードパスでも同様に、特殊文字を含むコンポーネントのみをエンコード
-                val processedComponent = if (component.any { char -> " []".indexOf(char) != -1 }) {
-                    URLEncoder.encode(component, "UTF-8").replace("+", "%20")
-                } else {
-                    component
-                }
-                smbFile = SmbFile(smbFile, processedComponent)
-            }
-            
-            sendDebugLog("Final download SmbFile path: ${smbFile.path}")
+            // Encode each path component and join them back
+            val encodedRemotePath = remotePath.split('/')
+                .filter { it.isNotEmpty() }
+                .joinToString("/") { URLEncoder.encode(it, "UTF-8").replace("+", "%20") }
 
-            val totalSize = smbFile.length()
+            val fullPath = shareUrl + encodedRemotePath
+            Log.d(TAG_DOWNLOAD, "Constructed full SMB path: $fullPath")
+            val smbFile = SmbFile(fullPath, context)
+
             var downloadedSize = 0L
 
-            File(localPath).outputStream().use { fileOutputStream ->
-                smbFile.inputStream.use { smbInputStream ->
-                    val buffer = ByteArray(8192)
-                    var bytesRead: Int
-                    while (smbInputStream.read(buffer).also { bytesRead = it } != -1) {
-                        fileOutputStream.write(buffer, 0, bytesRead)
-                        downloadedSize += bytesRead
-                        if (totalSize > 0) {
-                            val progress = (downloadedSize * 100 / totalSize).toInt()
-                            updateNotification(progress, remotePath)
-                        }
-                    }
-                }
+            val localFile = File(localPath)
+            localFile.parentFile?.mkdirs()
+            Log.d(TAG_DOWNLOAD, "Parent directories created for local file.")
+            
+            fileOutputStream = FileOutputStream(localFile)
+            smbInputStream = smbFile.inputStream
+            Log.d(TAG_DOWNLOAD, "Input and output streams opened.")
+
+            val buffer = ByteArray(8192)
+            var bytesRead: Int
+            while (smbInputStream.read(buffer).also { bytesRead = it } != -1) {
+                fileOutputStream.write(buffer, 0, bytesRead)
+                downloadedSize += bytesRead
             }
-            showFinalNotification("Download Complete", remotePath)
+            Log.d(TAG_DOWNLOAD, "File copy loop finished. Total bytes downloaded: $downloadedSize")
+
+            Log.d(TAG_DOWNLOAD, "Verifying downloaded file...")
+            if (localFile.exists() && localFile.length() == downloadedSize) {
+                Log.d(TAG_DOWNLOAD, "SUCCESS: File verified at $localPath")
+                withContext(Dispatchers.Main) { result.success(true) }
+            } else {
+                val errorMsg = "FAILURE: File verification failed. Exists: ${localFile.exists()}, Size: ${localFile.length()}, Expected: $downloadedSize"
+                Log.e(TAG_DOWNLOAD, errorMsg)
+                withContext(Dispatchers.Main) { result.error("DOWNLOAD_VERIFICATION_FAILED", errorMsg, null) }
+            }
+
         } catch (e: Exception) {
-            Log.e("SMB_DOWNLOAD_ERROR", "Download failed: ${e.message}", e)
-            showFinalNotification("Download Failed", "Error: ${e.message}")
+            val errorMsg = "Download failed with exception: ${e.message}"
+            Log.e(TAG_DOWNLOAD, errorMsg, e)
+            withContext(Dispatchers.Main) { result.error("DOWNLOAD_EXCEPTION", errorMsg, e.stackTraceToString()) }
         } finally {
+            try {
+                smbInputStream?.close()
+                fileOutputStream?.close()
+                Log.d(TAG_DOWNLOAD, "Streams closed.")
+            } catch (ioe: IOException) {
+                Log.e(TAG_DOWNLOAD, "Error closing streams:", ioe)
+            }
+
             if (wakeLock?.isHeld == true) {
                 wakeLock?.release()
+                Log.d(TAG_DOWNLOAD, "WakeLock released.")
             }
+            Log.d(TAG_DOWNLOAD, "--- Download Finish ---")
         }
     }
 

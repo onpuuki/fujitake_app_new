@@ -5,6 +5,7 @@ import 'package:path/path.dart' as p;
 import '../models/nas_server_model.dart';
 import 'dart:io';
 import '../services/cache_path_service.dart';
+import '../services/debug_log_service.dart';
 
 class ImageViewerScreen extends StatefulWidget {
   final NasServer server;
@@ -33,8 +34,12 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
     // 1. キャッシュファイルの存在を確認
     final localPath = await CachePathService.instance.getLocalPath(widget.server.id, widget.imagePath);
     final localFile = File(localPath);
+    DebugLogService().addLog('[_loadImageBytes] Checking for cache at: "$localPath"');
 
-    if (await localFile.exists()) {
+    final bool fileExists = await localFile.exists();
+    DebugLogService().addLog('[_loadImageBytes] Cache file exists: $fileExists');
+
+    if (fileExists) {
       // 3. キャッシュが存在する場合
       print("キャッシュから画像を表示します: $localPath");
       return await localFile.readAsBytes();

@@ -31,18 +31,22 @@ class SmbNativeFile {
   });
 
   factory SmbNativeFile.fromMap(Map<dynamic, dynamic> map, String currentPath) {
-    // nullチェックを追加し、nullの場合は空文字列をデフォルト値とする
     final name = map['name'] as String? ?? '';
     
-    String normalizedCurrentPath = currentPath.endsWith('/') ? currentPath : '$currentPath/';
-    if (currentPath.isEmpty) {
-      normalizedCurrentPath = '';
+    // ネイティブから'path'が提供されていれば、それを fullPath として優先する
+    final String fullPath;
+    if (map.containsKey('path') && map['path'] != null) {
+      fullPath = map['path'] as String;
+    } else {
+      String normalizedCurrentPath = currentPath.endsWith('/') ? currentPath : '$currentPath/';
+      if (currentPath.isEmpty) {
+        normalizedCurrentPath = '';
+      }
+      fullPath = normalizedCurrentPath + name;
     }
-    final fullPath = normalizedCurrentPath + name;
 
     return SmbNativeFile(
       name: name,
-      // isDirectoryにもnullチェックを追加
       isDirectory: map['isDirectory'] as bool? ?? false,
       size: map['size'] as int? ?? 0,
       lastModified: map['lastModified'] as int? ?? 0,

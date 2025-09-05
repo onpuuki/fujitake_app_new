@@ -3,6 +3,7 @@ import 'package:collection/collection.dart';
 import 'package:flutter/services.dart';
 import '../models/cache_job_model.dart';
 import '../models/nas_server_model.dart';
+import 'dart:io';
 import '../screens/nas_file_browser_screen.dart'; // SmbNativeFile を使うため
 import 'database_service.dart';
 import 'nas_server_service.dart';
@@ -113,7 +114,8 @@ class CacheDownloaderService {
         DebugLogService().addLog('[_processPendingJobs] Downloading: "$remoteFilePath" -> "$localFilePath"');
 
         try {
-          await _smbChannel.invokeMethod('downloadFile', {
+          DebugLogService().addLog('[_processPendingJobs] Invoking native download: "$remoteFilePath" -> "$localFilePath"');
+          final bool downloadSuccess = await _smbChannel.invokeMethod('downloadFile', {
             'host': server.host,
             'shareName': server.shareName,
             'username': server.username,
@@ -121,6 +123,11 @@ class CacheDownloaderService {
             'remotePath': remoteFilePath,
             'localPath': localFilePath,
           });
+
+          if (downloadSuccess != true) {
+            throw Exception('Native download failed. See native logs for details.');
+          }
+          DebugLogService().addLog('[_processPendingJobs] Native download successful for "$localFilePath"');
 
           jobToProcess.downloadedSize += file.size;
           downloadCount++;
@@ -184,10 +191,9 @@ class CacheDownloaderService {
       DebugLogService().addLog('[_listAllFilesRecursive] Native method returned ${rawFiles.length} files.');
 
       final files = rawFiles.map((file) {
-          // ネイティブから返される'path'は既に親ディレクトリを含んでいるはず
-          final String fullPath = file['path'];
-          final String parentPath = p.dirname(fullPath);
-          return SmbNativeFile.fromMap(file, parentPath);
+          // SmbNativeFile.fromMap が 'path' キーを優先して fullPath を設定するようになったので、
+          // currentPath は空で良い。
+          return SmbNativeFile.fromMap(file, '');
       }).toList();
 
       return files;

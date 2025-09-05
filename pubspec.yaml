@@ -71,6 +71,7 @@ dependencies:
   flutter_foreground_task: ^9.1.0 # Androidフォアグラウンドサービス用
 
   collection: ^1.18.0
+  crypto: ^3.0.6
 dev_dependencies:
   flutter_test:
     sdk: flutter

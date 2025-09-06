@@ -1,6 +1,7 @@
 class CacheJob {
   final int? id;
   final String serverId;
+  final String shareName; // 追加
   final String remotePath;
   final bool recursive;
   int totalSize;
@@ -11,6 +12,7 @@ class CacheJob {
   CacheJob({
     this.id,
     required this.serverId,
+    required this.shareName, // 追加
     required this.remotePath,
     required this.recursive,
     this.totalSize = 0,
@@ -22,6 +24,7 @@ class CacheJob {
   Map<String, dynamic> toMap() {
     return {
       'server_id': serverId,
+      'share_name': shareName, // 追加
       'remote_path': remotePath,
       'recursive': recursive ? 1 : 0,
       'total_size': totalSize,
@@ -35,6 +38,7 @@ class CacheJob {
     return CacheJob(
       id: map['_id'],
       serverId: map['server_id'],
+      shareName: map['share_name'] ?? '', // 追加 (DB移行のためのデフォルト値)
       remotePath: map['remote_path'],
       recursive: map['recursive'] == 1,
       totalSize: map['total_size'],
@@ -47,6 +51,7 @@ class CacheJob {
   CacheJob copyWith({
     int? id,
     String? serverId,
+    String? shareName, // 追加
     String? remotePath,
     bool? recursive,
     int? totalSize,
@@ -57,6 +62,7 @@ class CacheJob {
     return CacheJob(
       id: id ?? this.id,
       serverId: serverId ?? this.serverId,
+      shareName: shareName ?? this.shareName, // 追加
       remotePath: remotePath ?? this.remotePath,
       recursive: recursive ?? this.recursive,
       totalSize: totalSize ?? this.totalSize,

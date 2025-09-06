@@ -436,16 +436,23 @@ class MainActivity: FlutterActivity() {
             prop["jcifs.smb.client.responseTimeout"] = "20000"
             val config = jcifs.config.PropertyConfiguration(prop)
             val context = BaseContext(config).withCredentials(jcifs.smb.NtlmPasswordAuthenticator(domain, username, password))
-            val shareUrl = "smb://$host/${shareName.removeSuffix("/")}/"
             
-            // Encode each path component and join them back
-            val encodedRemotePath = remotePath.split('/')
-                .filter { it.isNotEmpty() }
-                .joinToString("/") { URLEncoder.encode(it, "UTF-8").replace("+", "%20") }
+            val shareUrl = "smb://$host/${shareName.removeSuffix("/")}/"
+            var smbFile = SmbFile(shareUrl, context)
+            Log.d(TAG_DOWNLOAD, "Base SmbFile path: ${smbFile.path}")
 
-            val fullPath = shareUrl + encodedRemotePath
-            Log.d(TAG_DOWNLOAD, "Constructed full SMB path: $fullPath")
-            val smbFile = SmbFile(fullPath, context)
+            val pathComponents = remotePath.split('/').filter { it.isNotEmpty() }
+            pathComponents.forEach { component ->
+                // URIエンコードはjcifsが内部で行うため、ここでは行わない
+                smbFile = SmbFile(smbFile, "$component/")
+                Log.d(TAG_DOWNLOAD, "Incrementally built SmbFile path: ${smbFile.path}")
+            }
+            
+            // ファイルなので、最後のスラッシュを取り除く
+            if (!smbFile.isDirectory) {
+                smbFile = SmbFile(smbFile.path.removeSuffix("/"), context)
+            }
+            Log.d(TAG_DOWNLOAD, "Final SmbFile path for download: ${smbFile.path}")
 
             var downloadedSize = 0L
 

@@ -55,6 +55,7 @@ class CacheDownloaderService {
 
   bool _isProcessing = false;
   bool _isWakelockHeld = false;
+  bool _isForegroundServiceRunning = false;
   Timer? _timer;
   // フォアグラウンドタスクから呼び出されるポーリング開始メソッド
   void startPollingForForegroundTask() {
@@ -80,6 +81,11 @@ class CacheDownloaderService {
       final jobToProcess = _jobs.firstWhereOrNull((j) => j.status == 'pending');
       if (jobToProcess == null) {
         return; // 処理するジョブがない
+      }
+
+      // 最初のジョブ処理の開始時にのみフォアグラウンドサービスを開始
+      if (!_isForegroundServiceRunning) {
+        await _startForegroundService();
       }
 
       // 最初のジョブ処理の開始時にのみWakeLockを取得
@@ -175,13 +181,18 @@ class CacheDownloaderService {
       _isProcessing = false;
       // 処理すべきジョブがもうないか確認
       final remainingJobs = _jobs.where((j) => j.status == "pending").toList();
-      if (remainingJobs.isEmpty && _isWakelockHeld) {
-        try {
-          await _smbChannel.invokeMethod("releaseWakeLock");
-          _isWakelockHeld = false;
-          DebugLogService().addLog("[_processPendingJobs] All jobs finished. WakeLock released.");
-        } catch (e) {
-          DebugLogService().addLog("[_processPendingJobs] Failed to release WakeLock: $e");
+      if (remainingJobs.isEmpty) {
+        if (_isWakelockHeld) {
+          try {
+            await _smbChannel.invokeMethod("releaseWakeLock");
+            _isWakelockHeld = false;
+            DebugLogService().addLog("[_processPendingJobs] All jobs finished. WakeLock released.");
+          } catch (e) {
+            DebugLogService().addLog("[_processPendingJobs] Failed to release WakeLock: $e");
+          }
+        }
+        if (_isForegroundServiceRunning) {
+          await _stopForegroundService();
         }
       }
     }
@@ -249,6 +260,26 @@ class CacheDownloaderService {
       if (job.id == _jobs[index].id) {
           job.status = newStatus;
       }
+    }
+  }
+
+  Future<void> _startForegroundService() async {
+    try {
+      await _smbChannel.invokeMethod('startForegroundService');
+      _isForegroundServiceRunning = true;
+      DebugLogService().addLog('Foreground service started.');
+    } catch (e) {
+      DebugLogService().addLog('Failed to start foreground service: $e');
+    }
+  }
+
+  Future<void> _stopForegroundService() async {
+    try {
+      await _smbChannel.invokeMethod('stopForegroundService');
+      _isForegroundServiceRunning = false;
+      DebugLogService().addLog('Foreground service stopped.');
+    } catch (e) {
+      DebugLogService().addLog('Failed to stop foreground service: $e');
     }
   }
 }

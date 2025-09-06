@@ -384,13 +384,7 @@ class MainActivity: FlutterActivity() {
                 val pathComponents = directoryPath.split('/').filter { it.isNotEmpty() }
                 
                 pathComponents.forEach { component ->
-                    // 特殊文字を含むコンポーネントのみをエンコードする
-                    val processedComponent = if (component.any { char -> " []".indexOf(char) != -1 }) {
-                        URLEncoder.encode(component, "UTF-8").replace("+", "%20")
-                    } else {
-                        component
-                    }
-                    targetDir = SmbFile(targetDir, processedComponent)
+                    targetDir = SmbFile(targetDir, "$component/")
                     sendDebugLog("Incrementally built SmbFile path: ${targetDir.path}")
                 }
 

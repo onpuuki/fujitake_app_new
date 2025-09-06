@@ -114,6 +114,8 @@ class _NasFileBrowserScreenState extends State<NasFileBrowserScreen> {
       _currentPath = path;
     });
 
+    GlobalLog.add('Listing files for path: "$path"');
+
     try {
       final List<dynamic> files = await _smbChannel.invokeMethod('listFiles', {
         'host': widget.server.host,
@@ -144,6 +146,7 @@ class _NasFileBrowserScreenState extends State<NasFileBrowserScreen> {
   }
 
   Future<void> _openFile(SmbNativeFile file) async {
+    GlobalLog.add('Opening file: "${file.name}"');
     if (file.isDirectory) {
       _listFiles(path: file.fullPath);
       return;
@@ -193,6 +196,7 @@ class _NasFileBrowserScreenState extends State<NasFileBrowserScreen> {
   }
 
   Future<bool> _onWillPop() async {
+    GlobalLog.add('Navigating back from: "$_currentPath"');
     if (_currentPath.isNotEmpty) {
       String parentPath = p.dirname(_currentPath);
       if (parentPath == '.') {

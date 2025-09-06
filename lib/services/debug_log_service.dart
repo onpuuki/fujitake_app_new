@@ -1,17 +1,17 @@
+import 'global_log.dart';
+
 class DebugLogService {
   static final DebugLogService _instance = DebugLogService._internal();
   factory DebugLogService() => _instance;
   DebugLogService._internal();
 
-  final List<String> logs = [];
-
   void addLog(String log) {
-    logs.add(log);
+    GlobalLog.add(log);
   }
 
-  List<String> getLogs() => List.from(logs);
+  List<String> getLogs() => List.from(GlobalLog.logs);
 
   void clearLogs() {
-    logs.clear();
+    GlobalLog.clear();
   }
 }

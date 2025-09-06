@@ -157,6 +157,7 @@ class MainActivity: FlutterActivity() {
                 "listAllFilesRecursive" -> handleListAllFilesRecursive(call, result)
                 "startStreaming" -> handleStartStreaming(call, result)
                 "stopStreaming" -> handleStopStreaming(call, result)
+                "copy" -> handleCopyFile(call, result)
                 
                 else -> result.notImplemented()
             }
@@ -332,6 +333,42 @@ class MainActivity: FlutterActivity() {
             streamingServers.remove(fileName)
         }
         result.success(null)
+    }
+
+    private fun handleCopyFile(call: MethodCall, result: Result) {
+        val host = call.argument<String>("host")
+        val shareName = call.argument<String>("shareName")
+        val sourcePath = call.argument<String>("sourcePath")
+        val destinationPath = call.argument<String>("destinationPath")
+        val username = call.argument<String>("username")
+        val password = call.argument<String>("password")
+        val domain = call.argument<String>("domain")
+
+        if (host == null || shareName == null || sourcePath == null || destinationPath == null) {
+            result.error("INVALID_ARGUMENTS", "Missing required arguments for copy.", null)
+            return
+        }
+
+        scope.launch {
+            try {
+                copySmbFile(host, shareName, sourcePath, destinationPath, username, password, domain)
+                withContext(Dispatchers.Main) { result.success(true) }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) { result.error("SMB_ERROR", "Failed to copy file: ${e.message}", e.stackTraceToString()) }
+            }
+        }
+    }
+
+    private suspend fun copySmbFile(host: String, shareName: String, sourcePath: String, destinationPath: String, username: String?, password: String?, domain: String?) {
+        withContext(Dispatchers.IO) {
+            val context = createCifsContext(domain, username, password)
+            val sourceUrl = "smb://$host/$shareName/$sourcePath"
+            val destinationUrl = "smb://$host/$shareName/$destinationPath"
+            val sourceFile = SmbFile(sourceUrl, context)
+            val destinationFile = SmbFile(destinationUrl, context)
+
+            sourceFile.copyTo(destinationFile)
+        }
     }
 
     private suspend fun listSmbFiles(host: String, shareName: String, directoryPath: String, username: String?, password: String?, domain: String?): List<Map<String, Any?>> {

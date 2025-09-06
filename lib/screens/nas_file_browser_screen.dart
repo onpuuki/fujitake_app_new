@@ -73,12 +73,15 @@ class _NasFileBrowserScreenState extends State<NasFileBrowserScreen> {
   String? _error;
   
   SmbNativeFile? _fileToMove;
+  String? _currentShare;
+  SmbNativeFile? _fileToCopy;
   String? _sourcePathForMove;
   final Map<String, Uint8List?> _thumbnailCache = {};
 
   @override
   void initState() {
     super.initState();
+    _currentShare = widget.server.shareName;
     _smbChannel.setMethodCallHandler(_handleNativeMethodCalls);
     _listFiles(path: '');
   }
@@ -98,6 +101,13 @@ class _NasFileBrowserScreenState extends State<NasFileBrowserScreen> {
   }
 
   Future<void> _listFiles({String path = ''}) async {
+    if (widget.server.shareName != _currentShare) {
+      setState(() {
+        _fileToCopy = null;
+        _currentShare = widget.server.shareName;
+      });
+    }
+
     setState(() {
       _isLoading = true;
       _error = null;
@@ -173,7 +183,9 @@ class _NasFileBrowserScreenState extends State<NasFileBrowserScreen> {
         onWillPop: _onWillPop,
         child: Scaffold(
           appBar: _buildAppBar(),
-          bottomNavigationBar: _fileToMove != null ? _buildMoveBottomAppBar() : null,
+          bottomNavigationBar: _fileToMove != null 
+              ? _buildMoveBottomAppBar() 
+              : (_fileToCopy != null ? _buildCopyBottomAppBar() : null),
           body: _buildBody(),
         ),
       ),
@@ -256,6 +268,27 @@ class _NasFileBrowserScreenState extends State<NasFileBrowserScreen> {
             onPressed: () => setState(() {
               _fileToMove = null;
               _sourcePathForMove = null;
+            }),
+          ),
+        ],
+      ),
+    );
+  }
+
+  BottomAppBar _buildCopyBottomAppBar() {
+    return BottomAppBar(
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceAround,
+        children: [
+          Text('${_fileToCopy!.name} をコピー中...'),
+          ElevatedButton(
+            onPressed: _copyFile,
+            child: const Text('ここに貼り付け'),
+          ),
+          IconButton(
+            icon: const Icon(Icons.cancel),
+            onPressed: () => setState(() {
+              _fileToCopy = null;
             }),
           ),
         ],
@@ -415,6 +448,11 @@ class _NasFileBrowserScreenState extends State<NasFileBrowserScreen> {
       onSelected: (value) {
         if (value == 'delete') {
           _showDeleteConfirmationDialog(file);
+        } else if (value == 'copy') {
+          setState(() {
+            _fileToCopy = file;
+            _fileToMove = null; // Reset move state
+          });
         } else if (value == 'move') {
           setState(() {
             _fileToMove = file;
@@ -426,6 +464,10 @@ class _NasFileBrowserScreenState extends State<NasFileBrowserScreen> {
       },
       itemBuilder: (BuildContext context) {
         return [
+          const PopupMenuItem<String>(
+            value: 'copy',
+            child: Text('コピー'),
+          ),
           const PopupMenuItem<String>(
             value: 'move',
             child: Text('移動'),
@@ -569,6 +611,43 @@ class _NasFileBrowserScreenState extends State<NasFileBrowserScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('${file.name} の削除に失敗しました: $e')),
       );
+    }
+  }
+
+  Future<void> _copyFile() async {
+    if (_fileToCopy == null) return;
+
+    final destinationPath = p.join(_currentPath, _fileToCopy!.name);
+
+    try {
+      final result = await _smbChannel.invokeMethod('copy', {
+        'host': widget.server.host,
+        'shareName': _currentShare,
+        'username': widget.server.username,
+        'password': widget.server.password,
+        'sourcePath': _fileToCopy!.fullPath,
+        'destinationPath': destinationPath,
+        'domain': widget.server.domain,
+      });
+
+      if (result == true) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('${_fileToCopy!.name} をコピーしました。')),
+        );
+        _listFiles(path: _currentPath);
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('ファイルのコピーに失敗しました。')),
+        );
+      }
+    } on PlatformException catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('エラー: ${e.message}')),
+      );
+    } finally {
+      setState(() {
+        _fileToCopy = null;
+      });
     }
   }
 

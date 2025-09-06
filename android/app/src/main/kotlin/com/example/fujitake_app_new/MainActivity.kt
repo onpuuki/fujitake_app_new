@@ -624,16 +624,7 @@ class MainActivity: FlutterActivity() {
                     val pathComponents = currentPath.split('/').filter { it.isNotEmpty() }
                     
                     pathComponents.forEach { component ->
-                        val processedComponent = if (component.any { char -> " []".indexOf(char) != -1 }) {
-                            URLEncoder.encode(component, "UTF-8").replace("+", "%20")
-                        } else {
-                            component
-                        }
-                        targetDir = SmbFile(targetDir, processedComponent)
-                    }
-
-                    if (pathComponents.isNotEmpty() && !targetDir.path.endsWith("/")) {
-                        targetDir = SmbFile(targetDir.path + "/", context)
+                        targetDir = SmbFile(targetDir, "$component/")
                     }
 
                     sendDebugLog("Listing files in: ${targetDir.path}")

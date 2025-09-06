@@ -15,7 +15,7 @@ class CacheDownloaderTaskHandler extends TaskHandler {
   @override
   Future<void> onStart(DateTime timestamp, TaskStarter starter) async {
     // サービスのポーリングを開始
-    _downloaderService.startPollingForForegroundTask();
+    // _downloaderService.startPollingForForegroundTask();
   }
 
   @override
@@ -39,7 +39,7 @@ class CacheDownloaderTaskHandler extends TaskHandler {
   @override
   Future<void> onDestroy(DateTime timestamp, bool isTimeout) async {
     // サービスのポーリングを停止
-    await _downloaderService.stopPollingForForegroundTask();
+    // await _downloaderService.stopPollingForForegroundTask();
   }
 
   @override

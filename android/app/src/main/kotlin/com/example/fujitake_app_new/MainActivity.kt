@@ -12,6 +12,7 @@ import android.content.IntentFilter
 import android.content.pm.ServiceInfo
 import android.graphics.drawable.Icon
 import android.os.Build
+import android.os.Looper
 import android.os.PowerManager
 import android.util.Log
 import android.webkit.MimeTypeMap
@@ -21,16 +22,19 @@ import androidx.core.app.NotificationCompat
 import fi.iki.elonen.NanoHTTPD
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.MethodChannel.Result
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
 import java.io.InputStream
+import java.net.URLEncoder
 import java.security.Security
+import jcifs.CIFSContext
 import jcifs.config.PropertyConfiguration
 import jcifs.context.BaseContext
-import jcifs.smb.NtlmPasswordAuthenticator
+import jcifs.smb.NtlmPasswordAuthentication
 import jcifs.smb.SmbFile
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -55,7 +59,7 @@ class MainActivity: FlutterActivity() {
     private var isPlaying = true
     private val scope = CoroutineScope(Dispatchers.IO)
     private var wakeLock: PowerManager.WakeLock? = null
-    private var webServer: WebServer? = null
+    private val streamingServers = mutableMapOf<String, WebServer>()
 
     private val pipControlReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -93,6 +97,7 @@ class MainActivity: FlutterActivity() {
                 "listSmbFiles" -> handleListSmbFiles(call, result)
                 "downloadFile" -> handleDownloadFile(call, result)
                 "listAllFilesRecursive" -> handleListAllFilesRecursive(call, result)
+                "readFile" -> handleReadFile(call, result)
                 "startStreaming" -> handleStartStreaming(call, result)
                 "stopStreaming" -> handleStopStreaming(call, result)
                 "copy" -> handleCopyFile(call, result)
@@ -110,7 +115,7 @@ class MainActivity: FlutterActivity() {
         }
     }
 
-    private fun handleListSmbFiles(call: io.flutter.plugin.common.MethodCall, result: Result) {
+    private fun handleListSmbFiles(call: MethodCall, result: Result) {
         scope.launch {
             try {
                 val host = call.argument<String>("host")!!
@@ -131,7 +136,7 @@ class MainActivity: FlutterActivity() {
         }
     }
 
-    private fun handleDownloadFile(call: io.flutter.plugin.common.MethodCall, result: Result) {
+    private fun handleDownloadFile(call: MethodCall, result: Result) {
         scope.launch {
             val host = call.argument<String>("host")!!
             val shareName = call.argument<String>("shareName")!!
@@ -144,7 +149,7 @@ class MainActivity: FlutterActivity() {
         }
     }
 
-    private fun handleListAllFilesRecursive(call: io.flutter.plugin.common.MethodCall, result: Result) {
+    private fun handleListAllFilesRecursive(call: MethodCall, result: Result) {
         scope.launch {
             try {
                 val host = call.argument<String>("host")!!
@@ -165,311 +170,293 @@ class MainActivity: FlutterActivity() {
         }
     }
 
-    private fun handleStartStreaming(call: io.flutter.plugin.common.MethodCall, result: Result) {
+    private fun handleReadFile(call: MethodCall, result: Result) {
+        val host = call.argument<String>("host")
+        val shareName = call.argument<String>("shareName")
+        val remotePath = call.argument<String>("path")
+        val username = call.argument<String>("username")
+        val password = call.argument<String>("password")
+        val domain = call.argument<String>("domain")
+
+        if (host == null || shareName == null || remotePath == null) {
+            result.error("INVALID_ARGUMENTS", "Missing required arguments for readFile.", null)
+            return
+        }
+
         scope.launch {
             try {
-                val host = call.argument<String>("host")!!
-                val shareName = call.argument<String>("shareName")!!
-                val filePath = call.argument<String>("filePath")!!
-                val username = call.argument<String>("username")
-                val password = call.argument<String>("password")
-                val domain = call.argument<String>("domain")
+                val context = getCifsContext(domain, username, password)
+                val encodedPath = remotePath.split('/').filter { it.isNotEmpty() }.joinToString("/") { URLEncoder.encode(it, "UTF-8") }
+                val fullPath = "smb://$host/$shareName/$encodedPath"
+                val smbFile = SmbFile(fullPath, context)
 
-                val prop = java.util.Properties()
-                prop["jcifs.smb.client.connTimeout"] = "15000"
-                prop["jcifs.smb.client.soTimeout"] = "20000"
-                val config = PropertyConfiguration(prop)
-                val context = BaseContext(config).withCredentials(NtlmPasswordAuthenticator(domain, username, password))
-                val smbFile = SmbFile("smb://$host/$shareName/$filePath", context)
-
-                webServer?.stop()
-                webServer = WebServer(smbFile) { log -> sendDebugLog(log) }
-                webServer!!.start()
-                val url = "http://localhost:${webServer!!.listeningPort}"
+                val bytes = smbFile.inputStream.use { it.readBytes() }
                 withContext(Dispatchers.Main) {
-                    result.success(url)
+                    result.success(bytes)
                 }
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
-                    result.error("STREAMING_ERROR", e.message, e.stackTraceToString())
+                    result.error("SMB_ERROR", "Failed to read file: ${e.message}", e.stackTraceToString())
                 }
             }
         }
     }
 
-    private fun handleStopStreaming(call: io.flutter.plugin.common.MethodCall, result: Result) {
-        webServer?.stop()
-        webServer = null
+    private fun handleStartStreaming(call: MethodCall, result: Result) {
+        val host = call.argument<String>("host")
+        val shareName = call.argument<String>("shareName")
+        val path = call.argument<String>("path")
+        val username = call.argument<String>("username")
+        val password = call.argument<String>("password")
+        val fileName = call.argument<String>("fileName")
+        val domain = call.argument<String>("domain")
+
+        if (host == null || shareName == null || path == null || fileName == null) {
+            result.error("INVALID_ARGUMENTS", "Missing arguments for startStreaming", null)
+            return
+        }
+
+        scope.launch {
+            try {
+                val context = getCifsContext(domain, username, password)
+                val encodedPath = path.split('/').filter { it.isNotEmpty() }.joinToString("/") { URLEncoder.encode(it, "UTF-8") }
+                val fullPath = "smb://$host/$shareName/$encodedPath"
+                sendDebugLog("WebServer: Final SmbFile path for streaming: $fullPath")
+                val smbFile = SmbFile(fullPath, context)
+
+                streamingServers[fileName]?.stop()
+                streamingServers.remove(fileName)
+
+                val server = WebServer(smbFile, this@MainActivity::sendDebugLog)
+                server.start()
+                streamingServers[fileName] = server
+                
+                val streamingUrl = "http://127.0.0.1:${server.listeningPort}"
+                
+                withContext(Dispatchers.Main) {
+                    result.success(streamingUrl)
+                }
+            } catch (e: Exception) {
+                sendDebugLog("WebServer: [ERROR] in handleStartStreaming: ${e.message}\n${e.stackTraceToString()}")
+                withContext(Dispatchers.Main) {
+                    result.error("STREAMING_ERROR", "Failed to start streaming server: ${e.message}", e.stackTraceToString())
+                }
+            }
+        }
+    }
+
+    private fun handleStopStreaming(call: MethodCall, result: Result) {
+        val fileName = call.argument<String>("fileName")
+        if (fileName != null && streamingServers.containsKey(fileName)) {
+            streamingServers[fileName]?.stop()
+            streamingServers.remove(fileName)
+        }
         result.success(null)
     }
 
-    private fun handleCopyFile(call: io.flutter.plugin.common.MethodCall, result: Result) {
+    private fun handleCopyFile(call: MethodCall, result: Result) {
+        val host = call.argument<String>("host")
+        val shareName = call.argument<String>("shareName")
+        val sourcePath = call.argument<String>("sourcePath")
+        val destinationPath = call.argument<String>("destinationPath")
+        val username = call.argument<String>("username")
+        val password = call.argument<String>("password")
+        val domain = call.argument<String>("domain")
+
+        if (host == null || shareName == null || sourcePath == null || destinationPath == null) {
+            result.error("INVALID_ARGUMENTS", "Missing required arguments for copy.", null)
+            return
+        }
+
         scope.launch {
             try {
-                val sourcePath = call.argument<String>("sourcePath")!!
-                val destHost = call.argument<String>("destHost")!!
-                val destShare = call.argument<String>("destShare")!!
-                val destPath = call.argument<String>("destPath")!!
-                val username = call.argument<String>("username")
-                val password = call.argument<String>("password")
-                val domain = call.argument<String>("domain")
-
+                val context = getCifsContext(domain, username, password)
+                val destSmbFile = SmbFile("smb://$host/$shareName/$destinationPath", context)
                 val sourceFile = File(sourcePath)
-                val prop = java.util.Properties()
-                prop["jcifs.smb.client.connTimeout"] = "15000"
-                prop["jcifs.smb.client.soTimeout"] = "20000"
-                val config = PropertyConfiguration(prop)
-                val context = BaseContext(config).withCredentials(NtlmPasswordAuthenticator(domain, username, password))
-                val destSmbFile = SmbFile("smb://$destHost/$destShare/$destPath", context)
-
+                
                 sourceFile.inputStream().use { input ->
                     destSmbFile.outputStream.use { output ->
                         input.copyTo(output)
                     }
                 }
                 withContext(Dispatchers.Main) {
-                    result.success(true)
+                    result.success(null)
                 }
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
-                    result.error("COPY_ERROR", e.message, e.stackTraceToString())
+                    result.error("COPY_ERROR", "Failed to copy file: ${e.message}", e.stackTraceToString())
                 }
             }
         }
-    }
-
-    private suspend fun listSmbFiles(host: String, shareName: String, directoryPath: String, username: String?, password: String?, domain: String?): List<Map<String, Any>> {
-        val files = mutableListOf<Map<String, Any>>()
-        val prop = java.util.Properties()
-        prop["jcifs.smb.client.connTimeout"] = "15000"
-        prop["jcifs.smb.client.soTimeout"] = "20000"
-        val config = PropertyConfiguration(prop)
-        val context = BaseContext(config).withCredentials(NtlmPasswordAuthenticator(domain, username, password))
-        val smbDir = SmbFile("smb://$host/$shareName/$directoryPath", context)
-        smbDir.listFiles().forEach { file ->
-            files.add(mapOf(
-                "name" to file.name.removeSuffix("/"),
-                "isDirectory" to file.isDirectory,
-                "path" to file.path,
-                "size" to file.length()
-            ))
-        }
-        return files
-    }
-
-    private suspend fun listAllFilesRecursive(host: String, shareName: String, directoryPath: String, username: String?, password: String?, domain: String?): List<Map<String, Any>> {
-        val allFiles = mutableListOf<Map<String, Any>>()
-        val prop = java.util.Properties()
-        prop["jcifs.smb.client.connTimeout"] = "15000"
-        prop["jcifs.smb.client.soTimeout"] = "20000"
-        val config = PropertyConfiguration(prop)
-        val context = BaseContext(config).withCredentials(NtlmPasswordAuthenticator(domain, username, password))
-        val directoryQueue = ArrayDeque<String>()
-        directoryQueue.add(directoryPath)
-
-        while (directoryQueue.isNotEmpty()) {
-            val currentPath = directoryQueue.removeFirst()
-            try {
-                val smbDir = SmbFile("smb://$host/$shareName/$currentPath", context)
-                smbDir.listFiles().forEach { file ->
-                    val relativePath = if (directoryPath.isEmpty()) file.name else currentPath.removeSuffix("/") + "/" + file.name
-                    if (file.isDirectory) {
-                        directoryQueue.add(relativePath)
-                    } else {
-                        allFiles.add(mapOf(
-                            "name" to file.name,
-                            "fullPath" to relativePath.removeSuffix("/"),
-                            "size" to file.length()
-                        ))
-                    }
-                }
-            } catch (e: Exception) {
-                Log.e("SMB_LIST_RECURSIVE", "Failed to list files in $currentPath: ${e.message}")
-            }
-        }
-        return allFiles
-    }
-
-    private suspend fun startDownload(host: String, shareName: String, remotePath: String, localPath: String, username: String?, password: String?, domain: String?, result: Result) {
-        val TAG_DOWNLOAD = "SMB_DOWNLOAD"
-        var fileOutputStream: FileOutputStream? = null
-        var smbInputStream: InputStream? = null
-        try {
-            val prop = java.util.Properties()
-            prop["jcifs.smb.client.connTimeout"] = "15000"
-            prop["jcifs.smb.client.soTimeout"] = "20000"
-            val config = PropertyConfiguration(prop)
-            val context = BaseContext(config).withCredentials(NtlmPasswordAuthenticator(domain, username, password))
-            val smbFile = SmbFile("smb://$host/$shareName/$remotePath", context)
-            val localFile = File(localPath)
-            localFile.parentFile?.mkdirs()
-            fileOutputStream = FileOutputStream(localFile)
-            smbInputStream = smbFile.inputStream
-            val buffer = ByteArray(8192)
-            var bytesRead: Int
-            while (smbInputStream.read(buffer).also { bytesRead = it } != -1) {
-                fileOutputStream.write(buffer, 0, bytesRead)
-            }
-            if (localFile.exists() && localFile.length() == smbFile.length()) {
-                withContext(Dispatchers.Main) { result.success(true) }
-            } else {
-                withContext(Dispatchers.Main) { result.error("DOWNLOAD_VERIFICATION_FAILED", "File verification failed", null) }
-            }
-        } catch (e: Exception) {
-            withContext(Dispatchers.Main) { result.error("DOWNLOAD_EXCEPTION", "Download failed: ${e.message}", e.stackTraceToString()) }
-        } finally {
-            smbInputStream?.close()
-            fileOutputStream?.close()
-        }
-    }
-
-    @RequiresApi(Build.VERSION_CODES.O)
-    private fun enterPipMode() {
-        updatePictureInPictureParams()
-    }
-
-    @RequiresApi(Build.VERSION_CODES.O)
-    private fun updatePictureInPictureParams() {
-        val actions = ArrayList<RemoteAction>()
-        actions.add(createRemoteAction(R.drawable.ic_rewind, "Rewind", CONTROL_TYPE_REWIND))
-        actions.add(
-            if (isPlaying) createRemoteAction(R.drawable.ic_pause, "Pause", CONTROL_TYPE_PLAY_PAUSE)
-            else createRemoteAction(R.drawable.ic_play, "Play", CONTROL_TYPE_PLAY_PAUSE)
-        )
-        actions.add(createRemoteAction(R.drawable.ic_forward, "Forward", CONTROL_TYPE_FORWARD))
-
-        val params = PictureInPictureParams.Builder()
-            .setActions(actions)
-            .build()
-        try {
-            setPictureInPictureParams(params)
-        } catch (e: IllegalStateException) {
-            // Not in PiP mode or other state issue
-        }
-    }
-
-    @RequiresApi(Build.VERSION_CODES.O)
-    private fun createRemoteAction(iconId: Int, title: String, controlType: Int): RemoteAction {
-        val intent = Intent(ACTION_PIP_CONTROL_INTERNAL).apply {
-            setPackage(packageName)
-            putExtra(EXTRA_CONTROL_TYPE, controlType)
-        }
-        val pendingIntent = PendingIntent.getBroadcast(
-            this,
-            controlType,
-            intent,
-            PendingIntent.FLAG_IMMUTABLE
-        )
-        return RemoteAction(Icon.createWithResource(this, iconId), title, title, pendingIntent)
-    }
-
-    private fun isPipAvailable(): Boolean {
-        return packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_PICTURE_IN_PICTURE)
-    }
-
-    private fun sendDebugLog(message: String) {
-        methodChannel?.invokeMethod("onDebugLog", message)
     }
 
     private fun acquireWakeLock(result: Result) {
         if (wakeLock == null) {
             val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
-            wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "FujitakeApp::DownloadQueueWakelockTag")
-            wakeLock?.setReferenceCounted(false)
-        }
-        if (wakeLock?.isHeld == false) {
+            wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "MyApp::MyWakelockTag")
             wakeLock?.acquire()
-            sendDebugLog("WakeLock acquired for download queue.")
-            result.success(true)
-        } else {
-            sendDebugLog("WakeLock already held.")
-            result.success(false)
         }
+        result.success(null)
     }
 
     private fun releaseWakeLock(result: Result) {
-        if (wakeLock?.isHeld == true) {
-            wakeLock?.release()
-            sendDebugLog("WakeLock released for download queue.")
-            result.success(true)
-        } else {
-            sendDebugLog("WakeLock not held or null, nothing to release.")
-            result.success(false)
-        }
+        wakeLock?.release()
+        wakeLock = null
+        result.success(null)
     }
 
     private fun startForegroundService(result: Result) {
-        try {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val intent = Intent(this, DownloadService::class.java)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                startForegroundService(intent)
-            } else {
-                startService(intent)
-            }
-            sendDebugLog("Foreground service intent sent.")
-            result.success(true)
-        } catch (e: Exception) {
-            sendDebugLog("Failed to start foreground service: ${e.message}")
-            result.error("FOREGROUND_SERVICE_ERROR", "Failed to start foreground service", e.stackTraceToString())
+            startForegroundService(intent)
         }
+        result.success(null)
     }
 
     private fun stopForegroundService(result: Result) {
-        try {
-            val intent = Intent(this, DownloadService::class.java)
-            stopService(intent)
-            sendDebugLog("Foreground service stop intent sent.")
-            result.success(true)
-        } catch (e: Exception) {
-            sendDebugLog("Failed to stop foreground service: ${e.message}")
-            result.error("FOREGROUND_SERVICE_ERROR", "Failed to stop foreground service", e.stackTraceToString())
+        val intent = Intent(this, DownloadService::class.java)
+        stopService(intent)
+        result.success(null)
+    }
+
+    private fun isPipAvailable(): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_PICTURE_IN_PICTURE)
+        } else false
+    }
+
+    @RequiresApi(Build.VERSION_CODES.O)
+    private fun enterPipMode() {
+        val params = PictureInPictureParams.Builder()
+            .setActions(getPipActions())
+            .build()
+        enterPictureInPictureMode(params)
+    }
+
+    @RequiresApi(Build.VERSION_CODES.O)
+    private fun updatePictureInPictureParams() {
+        val params = PictureInPictureParams.Builder()
+            .setActions(getPipActions())
+            .build()
+        setPictureInPictureParams(params)
+    }
+
+    @RequiresApi(Build.VERSION_CODES.O)
+    private fun getPipActions(): List<RemoteAction> {
+        val playPauseAction = RemoteAction(
+            Icon.createWithResource(this, if (isPlaying) R.drawable.ic_pause else R.drawable.ic_play),
+            "Play/Pause",
+            "Play/Pause",
+            PendingIntent.getBroadcast(
+                this,
+                CONTROL_TYPE_PLAY_PAUSE,
+                Intent(ACTION_PIP_CONTROL_INTERNAL).putExtra(EXTRA_CONTROL_TYPE, CONTROL_TYPE_PLAY_PAUSE),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+        )
+        return listOf(playPauseAction)
+    }
+
+    private fun listSmbFiles(host: String, shareName: String, directoryPath: String, username: String?, password: String?, domain: String?): List<Map<String, Any>> {
+        val context = getCifsContext(domain, username, password)
+        val smbDir = SmbFile("smb://$host/$shareName/$directoryPath", context)
+        return smbDir.listFiles().map {
+            mapOf(
+                "name" to it.name,
+                "isDirectory" to it.isDirectory,
+                "path" to it.path
+            )
         }
     }
 
-    private fun createNotificationChannelForForegroundService() {
-        // This is now handled in DownloadService.kt
-    }
-}
+    private fun listAllFilesRecursive(host: String, shareName: String, directoryPath: String, username: String?, password: String?, domain: String?): List<Map<String, Any>> {
+        val context = getCifsContext(domain, username, password)
+        val allFiles = mutableListOf<SmbFile>()
+        val root = SmbFile("smb://$host/$shareName/$directoryPath", context)
+        val queue = ArrayDeque<SmbFile>()
+        queue.add(root)
 
-class WebServer(
-    private val smbFile: SmbFile,
-    private val log: (String) -> Unit
-) : NanoHTTPD(0) {
-    override fun serve(session: IHTTPSession): Response {
-        log("WebServer: Received request for ${smbFile.name}")
-        val mimeType = getMimeTypeFromExtension(smbFile.name)
-        var inputStream: InputStream? = null
-        try {
-            val fileLength = smbFile.length()
-            val rangeHeader = session.headers["range"]
-            if (rangeHeader != null && rangeHeader.startsWith("bytes=")) {
-                val range = rangeHeader.substring(6).split("-")
-                val start = range[0].toLong()
-                val end = if (range.size > 1 && range[1].isNotEmpty()) range[1].toLong() else fileLength - 1
-                inputStream = smbFile.inputStream
-                inputStream.skip(start)
-                val chunkLength = end - start + 1
-                val response = newChunkedResponse(Response.Status.PARTIAL_CONTENT, mimeType, inputStream)
-                response.addHeader("Content-Length", chunkLength.toString())
-                response.addHeader("Content-Range", "bytes $start-$end/$fileLength")
-                response.addHeader("Accept-Ranges", "bytes")
-                return response
-            } else {
-                inputStream = smbFile.inputStream
-                val response = newChunkedResponse(Response.Status.OK, mimeType, inputStream)
-                response.addHeader("Content-Length", fileLength.toString())
-                response.addHeader("Accept-Ranges", "bytes")
-                return response
+        while (queue.isNotEmpty()) {
+            val currentDir = queue.removeFirst()
+            try {
+                val files = currentDir.listFiles()
+                for (file in files) {
+                    if (file.isDirectory) {
+                        queue.add(file)
+                    }
+                    allFiles.add(file)
+                }
+            } catch (e: Exception) {
+                Log.e("SMB_ERROR", "Failed to list files in ${currentDir.path}: ${e.message}")
             }
-        } catch (e: Exception) {
-            log("WebServer: [ERROR] ${e.javaClass.simpleName}: ${e.message}")
-            inputStream?.close()
-            return newFixedLengthResponse(Response.Status.INTERNAL_ERROR, MIME_PLAINTEXT, "Error: ${e.message}")
+        }
+        return allFiles.map { mapOf("name" to it.name, "isDirectory" to it.isDirectory, "path" to it.path) }
+    }
+
+    private fun startDownload(host: String, shareName: String, remotePath: String, localPath: String, username: String?, password: String?, domain: String?, result: Result) {
+        val context = getCifsContext(domain, username, password)
+        val smbFile = SmbFile("smb://$host/$shareName/$remotePath", context)
+        val localFile = File(localPath)
+        
+        try {
+            smbFile.inputStream.use { input ->
+                FileOutputStream(localFile).use { output ->
+                    input.copyTo(output)
+                }
+            }
+            result.success(localFile.absolutePath)
+        } catch (e: IOException) {
+            result.error("DOWNLOAD_ERROR", "File download failed: ${e.message}", e.stackTraceToString())
         }
     }
 
-    private fun getMimeTypeFromExtension(fileName: String): String {
-        val extension = MimeTypeMap.getFileExtensionFromUrl(fileName)
-        return MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension) ?: "application/octet-stream"
+    private fun getCifsContext(domain: String?, username: String?, password: String?): CIFSContext {
+        val prop = java.util.Properties()
+        prop["jcifs.smb.client.connTimeout"] = "15000"
+        prop["jcifs.smb.client.soTimeout"] = "20000"
+        val config = PropertyConfiguration(prop)
+        val baseContext = BaseContext(config)
+        return if (username.isNullOrBlank()) {
+            baseContext.withAnonymousCredentials()
+        } else {
+            val auth = jcifs.smb.NtlmPasswordAuthentication(null, domain, username, password)
+            baseContext.withCredentials(auth)
+        }
+    }
+
+    private fun sendDebugLog(message: String) {
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            methodChannel?.invokeMethod("onDebugLog", message)
+        } else {
+            activity.runOnUiThread {
+                methodChannel?.invokeMethod("onDebugLog", message)
+            }
+        }
+    }
+
+    inner class WebServer(private val file: SmbFile, private val logCallback: (String) -> Unit) : NanoHTTPD(0) {
+        override fun serve(session: IHTTPSession): Response {
+            logCallback("WebServer: Received request for ${session.uri}")
+            return try {
+                val mimeType = MimeTypeMap.getSingleton().getMimeTypeFromExtension(file.name.substringAfterLast('.')) ?: "application/octet-stream"
+                val stream = file.inputStream
+                val response = newChunkedResponse(Response.Status.OK, mimeType, stream)
+                response.addHeader("Content-Length", file.length().toString())
+                logCallback("WebServer: Serving file ${file.name} with MIME type $mimeType")
+                response
+            } catch (e: IOException) {
+                logCallback("WebServer: [ERROR] Could not read file ${file.name}: ${e.message}")
+                newFixedLengthResponse(Response.Status.INTERNAL_ERROR, "text/plain", "Error reading file.")
+            }
+        }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            unregisterReceiver(pipControlReceiver)
+        }
+        streamingServers.values.forEach { it.stop() }
+        methodChannel = null
     }
 }

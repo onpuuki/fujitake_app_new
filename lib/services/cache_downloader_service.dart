@@ -98,7 +98,7 @@ class CacheDownloaderService {
       await dbService.updateCacheJob(jobToProcess);
 
       // ファイルリストを取得して合計サイズを計算
-      final filesToCache = await _listAllFilesRecursive(server, jobToProcess.remotePath, jobToProcess.recursive);
+      final filesToCache = await _listAllFilesRecursive(server, jobToProcess, jobToProcess.remotePath, jobToProcess.recursive);
       final totalSize = filesToCache.fold<int>(0, (sum, file) => sum + file.size);
 
       jobToProcess.totalSize = totalSize;
@@ -117,7 +117,7 @@ class CacheDownloaderService {
           DebugLogService().addLog('[_processPendingJobs] Invoking native download: "$remoteFilePath" -> "$localFilePath"');
           final bool downloadSuccess = await _smbChannel.invokeMethod('downloadFile', {
             'host': server.host,
-            'shareName': server.shareName,
+            'shareName': jobToProcess.shareName,
             'username': server.username,
             'password': server.password,
             'remotePath': remoteFilePath,
@@ -161,7 +161,7 @@ class CacheDownloaderService {
     }
   }
 
-  Future<List<SmbNativeFile>> _listAllFilesRecursive(NasServer server, String path, bool recursive) async {
+  Future<List<SmbNativeFile>> _listAllFilesRecursive(NasServer server, CacheJob jobToProcess, String path, bool recursive) async {
     DebugLogService().addLog('[_listAllFilesRecursive] Starting recursive list for path: "$path"');
     
     if (!recursive) {
@@ -171,7 +171,7 @@ class CacheDownloaderService {
         // ここでは既存のlistFilesを使い、1階層のみ取得します。
         final List<dynamic> rawFiles = await _smbChannel.invokeMethod('listFiles', {
           'host': server.host,
-          'shareName': server.shareName,
+          'shareName': jobToProcess.shareName,
           'username': server.username,
           'password': server.password,
           'path': path,
@@ -182,7 +182,7 @@ class CacheDownloaderService {
     try {
       final List<dynamic> rawFiles = await _smbChannel.invokeMethod('listAllFilesRecursive', {
         'host': server.host,
-        'shareName': server.shareName,
+        'shareName': jobToProcess.shareName,
         'username': server.username,
         'password': server.password,
         'directoryPath': path,

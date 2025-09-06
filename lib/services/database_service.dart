@@ -5,12 +5,13 @@ import '../models/cache_job_model.dart';
 
 class DatabaseService {
   static const _databaseName = "CacheManager.db";
-  static const _databaseVersion = 2;
+  static const _databaseVersion = 3; // バージョンを3に更新
 
   // --- Tables and Columns ---
   static const tableCacheJobs = 'cache_jobs';
   static const columnId = '_id';
   static const columnServerId = 'server_id';
+  static const columnShareName = 'share_name'; // share_nameカラムの定数を追加
   static const columnRemotePath = 'remote_path';
   static const columnRecursive = 'recursive';
   static const columnTotalSize = 'total_size';
@@ -44,6 +45,7 @@ class DatabaseService {
       CREATE TABLE $tableCacheJobs (
         $columnId INTEGER PRIMARY KEY AUTOINCREMENT,
         $columnServerId TEXT NOT NULL,
+        $columnShareName TEXT NOT NULL,
         $columnRemotePath TEXT NOT NULL,
         $columnRecursive INTEGER NOT NULL,
         $columnTotalSize INTEGER NOT NULL DEFAULT 0,
@@ -60,6 +62,13 @@ class DatabaseService {
       // 古いテーブルを一旦削除して新しいスキーマで作り直す（データは失われる）
       await db.execute('DROP TABLE IF EXISTS $tableCacheJobs');
       await _onCreate(db, newVersion);
+    }
+    if (oldVersion < 3) {
+      // Version 3へのアップグレード: share_name カラムを追加
+      await db.execute('''
+        ALTER TABLE $tableCacheJobs
+        ADD COLUMN $columnShareName TEXT NOT NULL DEFAULT ''
+      ''');
     }
   }
 

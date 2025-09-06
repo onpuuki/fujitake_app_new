@@ -552,6 +552,7 @@ class _NasFileBrowserScreenState extends State<NasFileBrowserScreen> {
     final path = p.join(_currentPath, directory.name);
     final job = CacheJob(
         serverId: widget.server.id,
+        shareName: _currentShare!,
         remotePath: path,
         recursive: recursive,
         status: 'pending',

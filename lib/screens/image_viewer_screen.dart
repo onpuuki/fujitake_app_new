@@ -8,14 +8,16 @@ import '../services/cache_path_service.dart';
 import '../services/debug_log_service.dart';
 
 class ImageViewerScreen extends StatefulWidget {
-  final NasServer server;
-  final String imagePath;
+  final NasServer? server;
+  final String? imagePath;
+  final String? localPath;
 
   const ImageViewerScreen({
     super.key,
-    required this.server,
-    required this.imagePath,
-  });
+    this.server,
+    this.imagePath,
+    this.localPath,
+  }) : assert(server != null && imagePath != null || localPath != null);
 
   @override
   State<ImageViewerScreen> createState() => _ImageViewerScreenState();
@@ -31,8 +33,14 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
   }
 
   Future<Uint8List> _loadImageBytes() async {
+    if (widget.localPath != null) {
+      // ローカルファイルパスが指定されている場合
+      final localFile = File(widget.localPath!);
+      return await localFile.readAsBytes();
+    }
+
     // 1. キャッシュファイルの存在を確認
-    final localPath = await CachePathService.instance.getLocalPath(widget.server.id, widget.imagePath);
+    final localPath = await CachePathService.instance.getLocalPath(widget.server!.id, widget.imagePath!);
     final localFile = File(localPath);
     DebugLogService().addLog('[_loadImageBytes] Checking for cache at: "$localPath"');
 
@@ -49,12 +57,12 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
       const MethodChannel smbChannel = MethodChannel('com.example.fujitake_app_new/smb');
       try {
         final Uint8List imageBytes = await smbChannel.invokeMethod('readFile', {
-          'host': widget.server.host,
-          'shareName': widget.server.shareName,
-          'username': widget.server.username,
-          'password': widget.server.password,
+          'host': widget.server!.host,
+          'shareName': widget.server!.shareName,
+          'username': widget.server!.username,
+          'password': widget.server!.password,
           'path': widget.imagePath,
-          'domain': widget.server.domain,
+          'domain': widget.server!.domain,
         });
 
         // 取得した画像をキャッシュに保存
@@ -72,7 +80,7 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(p.basename(widget.imagePath))),
+      appBar: AppBar(title: Text(p.basename(widget.localPath ?? widget.imagePath!))),
       backgroundColor: Colors.black,
       body: Center(
         child: FutureBuilder<Uint8List>(

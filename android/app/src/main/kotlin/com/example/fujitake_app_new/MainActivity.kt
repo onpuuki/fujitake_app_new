@@ -158,6 +158,8 @@ class MainActivity: FlutterActivity() {
                 "startStreaming" -> handleStartStreaming(call, result)
                 "stopStreaming" -> handleStopStreaming(call, result)
                 "copy" -> handleCopyFile(call, result)
+                "acquireWakeLock" -> acquireWakeLock(result)
+                "releaseWakeLock" -> releaseWakeLock(result)
                 
                 else -> result.notImplemented()
             }
@@ -419,17 +421,11 @@ class MainActivity: FlutterActivity() {
         Log.d(TAG_DOWNLOAD, "--- Download Start ---")
         Log.d(TAG_DOWNLOAD, "Remote Path: $remotePath")
         Log.d(TAG_DOWNLOAD, "Local Path: $localPath")
-
-        val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
-        wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "FujitakeApp::DownloadWakelockTag")
         
         var fileOutputStream: FileOutputStream? = null
         var smbInputStream: InputStream? = null
 
         try {
-            wakeLock?.acquire(10*60*1000L)
-            Log.d(TAG_DOWNLOAD, "WakeLock acquired.")
-            
             val prop = java.util.Properties()
             prop["jcifs.smb.client.connTimeout"] = "15000"
             prop["jcifs.smb.client.soTimeout"] = "20000"
@@ -493,11 +489,6 @@ class MainActivity: FlutterActivity() {
                 Log.d(TAG_DOWNLOAD, "Streams closed.")
             } catch (ioe: IOException) {
                 Log.e(TAG_DOWNLOAD, "Error closing streams:", ioe)
-            }
-
-            if (wakeLock?.isHeld == true) {
-                wakeLock?.release()
-                Log.d(TAG_DOWNLOAD, "WakeLock released.")
             }
             Log.d(TAG_DOWNLOAD, "--- Download Finish ---")
         }
@@ -692,7 +683,36 @@ class MainActivity: FlutterActivity() {
         }
     }
 
+
+    private fun acquireWakeLock(result: Result) {
+        if (wakeLock == null) {
+            val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+            wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "FujitakeApp::DownloadQueueWakelockTag")
+            wakeLock?.setReferenceCounted(false)
+        }
+        if (wakeLock?.isHeld == false) {
+            wakeLock?.acquire() // No timeout
+            sendDebugLog("WakeLock acquired for download queue.")
+            result.success(true)
+        } else {
+            sendDebugLog("WakeLock already held.")
+            result.success(false)
+        }
+    }
+
+    private fun releaseWakeLock(result: Result) {
+        if (wakeLock?.isHeld == true) {
+            wakeLock?.release()
+            sendDebugLog("WakeLock released for download queue.")
+            result.success(true)
+        } else {
+            sendDebugLog("WakeLock not held or null, nothing to release.")
+            result.success(false)
+        }
+    }
+
 }
+
 
 
 

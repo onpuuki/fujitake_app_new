@@ -54,6 +54,7 @@ class CacheDownloaderService {
   final _nasServerService = NasServerService();
 
   bool _isProcessing = false;
+  bool _isWakelockHeld = false;
   Timer? _timer;
   // フォアグラウンドタスクから呼び出されるポーリング開始メソッド
   void startPollingForForegroundTask() {
@@ -75,13 +76,23 @@ class CacheDownloaderService {
     if (_isProcessing) return;
     _isProcessing = true;
 
-    final jobToProcess = _jobs.firstWhereOrNull((j) => j.status == 'pending');
-    if (jobToProcess == null) {
-      _isProcessing = false;
-      return; // 処理するジョブがない
-    }
-
     try {
+      final jobToProcess = _jobs.firstWhereOrNull((j) => j.status == 'pending');
+      if (jobToProcess == null) {
+        return; // 処理するジョブがない
+      }
+
+      // 最初のジョブ処理の開始時にのみWakeLockを取得
+      if (!_isWakelockHeld) {
+        try {
+          await _smbChannel.invokeMethod("acquireWakeLock");
+          _isWakelockHeld = true;
+          DebugLogService().addLog("[_processPendingJobs] WakeLock acquired.");
+        } catch (e) {
+          DebugLogService().addLog("[_processPendingJobs] Failed to acquire WakeLock: $e");
+        }
+      }
+
       final dbService = DatabaseService.instance;
       
       // サーバー情報を取得
@@ -90,7 +101,7 @@ class CacheDownloaderService {
         DebugLogService().addLog('[_processPendingJobs] FATAL: Server not found for id: ${jobToProcess.serverId}');
         throw Exception('Server not found for job: ${jobToProcess.id}');
       } else {
-        DebugLogService().addLog('[_processPendingJobs] Server loaded: ${server.nickname}, Host: ${server.host}, Share: ${server.shareName}');
+        DebugLogService().addLog('[_processPendingJobs] Server loaded: ${server.nickname}, Host: ${server.host}, Share: ${jobToProcess.shareName}');
       }
 
       // ステータスを 'calculating' に更新
@@ -144,8 +155,7 @@ class CacheDownloaderService {
           DebugLogService().addLog('[_processPendingJobs] Stacktrace: $stacktrace');
           _updateJobStatus(jobToProcess, 'failed');
           await dbService.updateCacheJob(jobToProcess);
-          _isProcessing = false;
-          return;
+          return; // このファイルのダウンロードで失敗したので、このジョブの処理を中断
         }
       }
 
@@ -153,11 +163,27 @@ class CacheDownloaderService {
       await dbService.updateCacheJob(jobToProcess);
       
     } catch (e) {
-      print('Error processing cache job ${jobToProcess.id}: $e');
-      _updateJobStatus(jobToProcess, 'failed');
-      await DatabaseService.instance.updateCacheJob(jobToProcess);
+      final jobToProcess = _jobs.firstWhereOrNull((j) => j.status == 'pending' || j.status == 'calculating' || j.status == 'downloading');
+      if (jobToProcess != null) {
+        print('Error processing cache job ${jobToProcess.id}: $e');
+        _updateJobStatus(jobToProcess, 'failed');
+        await DatabaseService.instance.updateCacheJob(jobToProcess);
+      } else {
+        print('An error occurred during job processing, but no active job was found: $e');
+      }
     } finally {
       _isProcessing = false;
+      // 処理すべきジョブがもうないか確認
+      final remainingJobs = _jobs.where((j) => j.status == "pending").toList();
+      if (remainingJobs.isEmpty && _isWakelockHeld) {
+        try {
+          await _smbChannel.invokeMethod("releaseWakeLock");
+          _isWakelockHeld = false;
+          DebugLogService().addLog("[_processPendingJobs] All jobs finished. WakeLock released.");
+        } catch (e) {
+          DebugLogService().addLog("[_processPendingJobs] Failed to release WakeLock: $e");
+        }
+      }
     }
   }
 

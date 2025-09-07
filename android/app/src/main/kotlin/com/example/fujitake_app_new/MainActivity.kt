@@ -435,6 +435,7 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+
     private suspend fun listAllFilesRecursive(host: String, shareName: String, directoryPath: String, username: String?, password: String?, domain: String?): List<Map<String, Any?>> {
         return withContext(Dispatchers.IO) {
             sendDebugLog("listAllFilesRecursive START: host=$host, shareName=$shareName, directoryPath=$directoryPath")
@@ -483,31 +484,7 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-    @RequiresApi(Build.VERSION_CODES.O)
-    private fun enterPipMode() {
-        updatePictureInPictureParams()
-    }
 
-    @RequiresApi(Build.VERSION_CODES.O)
-    private fun updatePictureInPictureParams() {
-        val actions = arrayListOf<RemoteAction>()
-
-        val playPauseIcon = if (isPlaying) R.drawable.ic_pause else R.drawable.ic_play
-        val playPauseTitle = if (isPlaying) "Pause" else "Play"
-        val playPauseIntent = PendingIntent.getBroadcast(
-            this,
-            CONTROL_TYPE_PLAY_PAUSE,
-            Intent(ACTION_PIP_CONTROL_INTERNAL).putExtra(EXTRA_CONTROL_TYPE, CONTROL_TYPE_PLAY_PAUSE),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-        actions.add(RemoteAction(Icon.createWithResource(this, playPauseIcon), playPauseTitle, playPauseTitle, playPauseIntent))
-
-        val params = PictureInPictureParams.Builder()
-            .setAspectRatio(Rational(16, 9))
-            .setActions(actions)
-            .build()
-        setPictureInPictureParams(params)
-    }
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -521,6 +498,59 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+
+    @RequiresApi(Build.VERSION_CODES.O)
+    private fun enterPipMode() {
+        val params = PictureInPictureParams.Builder()
+            .setAspectRatio(Rational(16, 9))
+            .setActions(createPipActions())
+            .build()
+        activity.enterPictureInPictureMode(params)
+    }
+
+    @RequiresApi(Build.VERSION_CODES.O)
+    private fun updatePictureInPictureParams() {
+        sendPipLog("Updating PiP params, isPlaying: $isPlaying")
+        val params = PictureInPictureParams.Builder()
+            .setActions(createPipActions())
+            .build()
+        setPictureInPictureParams(params)
+        sendPipLog("PiP params updated successfully.")
+    }
+
+    @RequiresApi(Build.VERSION_CODES.O)
+    private fun createPipActions(): List<RemoteAction> {
+        sendPipLog("Creating PiP actions.")
+        val playPauseIntent = Intent(ACTION_PIP_CONTROL_INTERNAL).setPackage(this.packageName).putExtra(EXTRA_CONTROL_TYPE, CONTROL_TYPE_PLAY_PAUSE)
+        val playPausePendingIntent = PendingIntent.getBroadcast(this, 1, playPauseIntent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        val playPauseIcon = if (isPlaying) Icon.createWithResource(this, android.R.drawable.ic_media_pause) else Icon.createWithResource(this, android.R.drawable.ic_media_play)
+
+        val rewindIntent = Intent(ACTION_PIP_CONTROL_INTERNAL).setPackage(this.packageName).putExtra(EXTRA_CONTROL_TYPE, CONTROL_TYPE_REWIND)
+        val rewindPendingIntent = PendingIntent.getBroadcast(this, 2, rewindIntent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        val rewindIcon = Icon.createWithResource(this, android.R.drawable.ic_media_rew)
+
+        val forwardIntent = Intent(ACTION_PIP_CONTROL_INTERNAL).setPackage(this.packageName).putExtra(EXTRA_CONTROL_TYPE, CONTROL_TYPE_FORWARD)
+        val forwardPendingIntent = PendingIntent.getBroadcast(this, 3, forwardIntent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        val forwardIcon = Icon.createWithResource(this, android.R.drawable.ic_media_ff)
+
+        sendPipLog("PiP actions created.")
+        return listOf(
+            RemoteAction(rewindIcon, "Rewind", "Rewind 10s", rewindPendingIntent),
+            RemoteAction(playPauseIcon, if(isPlaying) "Pause" else "Play", "Toggle Play/Pause", playPausePendingIntent),
+            RemoteAction(forwardIcon, "Forward", "Forward 30s", forwardPendingIntent)
+        )
+    }
+
+    override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode)
+        methodChannel?.invokeMethod("onPictureInPictureModeChanged", isInPictureInPictureMode)
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        unregisterReceiver(pipControlReceiver)
+    }
+
     class DownloadWorker(appContext: Context, workerParams: WorkerParameters) : CoroutineWorker(appContext, workerParams) {
         override suspend fun doWork(): Result {
             val host = inputData.getString("host") ?: return Result.failure()
@@ -530,6 +560,7 @@ class MainActivity : FlutterActivity() {
             val username = inputData.getString("username")
             val password = inputData.getString("password")
             val domain = inputData.getString("domain")
+
 
             return try {
                 val context = createCifsContext(domain, username, password)
@@ -558,6 +589,8 @@ class MainActivity : FlutterActivity() {
             props["jcifs.smb.client.minVersion"] = "SMB202"
             props["jcifs.smb.client.maxVersion"] = "SMB311"
             props["jcifs.smb.client.ipcSigningEnforced"] = "false"
+
+
             props["jcifs.smb.client.signingEnforced"] = "false"
             props["jcifs.smb.client.smb2.signingEnforced"] = "false"
             props["jcifs.smb.client.useSMB21"] = "true"

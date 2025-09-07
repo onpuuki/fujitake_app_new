@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:collection/collection.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/foundation.dart';
 import '../models/cache_job_model.dart';
 import '../models/nas_server_model.dart';
 import 'dart:io';
@@ -17,27 +18,27 @@ class CacheDownloaderService {
   }
   static final CacheDownloaderService instance = CacheDownloaderService._privateConstructor();
 
-  final List<CacheJob> _jobs = [];
+  final ValueNotifier<List<CacheJob>> jobsNotifier = ValueNotifier([]);
 
 
   Future<void> _initialize() async {
     // データベースから未完了のジョブをロードする
     final incompleteJobs = await DatabaseService.instance.getIncompleteCacheJobs();
-    _jobs.addAll(incompleteJobs);
+    jobsNotifier.value = incompleteJobs;
     print('[CacheDownloaderService] Initialized with ${incompleteJobs.length} incomplete jobs.');
   }
 
 
   Future<void> addJob(CacheJob job) async {
-    // 既に同じジョブが存在しないかDBレベルでも確認することが望ましいが、まずはメモリでチェック
-    if (_jobs.any((j) => j.serverId == job.serverId && j.remotePath == job.remotePath)) {
+    if (jobsNotifier.value.any((j) => j.serverId == job.serverId && j.remotePath == job.remotePath)) {
       print('Job already in queue for ${job.remotePath}');
       return;
     }
 
     try {
       final id = await DatabaseService.instance.addCacheJob(job);
-      _jobs.add(job.copyWith(id: id));
+      final newJob = job.copyWith(id: id);
+      jobsNotifier.value = [...jobsNotifier.value, newJob];
       print('Job added to DB and memory for ${job.remotePath}');
     } catch (e) {
       print('Failed to add job: $e');
@@ -45,9 +46,7 @@ class CacheDownloaderService {
     }
   }
 
-  List<CacheJob> getJobs() {
-    return List.unmodifiable(_jobs);
-  }
+
 
 
   static const _smbChannel = MethodChannel('com.example.fujitake_app_new/smb');
@@ -75,7 +74,7 @@ class CacheDownloaderService {
     if (_isProcessing) return;
     _isProcessing = true;
 
-    final jobToProcess = _jobs.firstWhereOrNull((j) => j.status == 'pending');
+    final jobToProcess = jobsNotifier.value.firstWhereOrNull((j) => j.status == 'pending');
     if (jobToProcess == null) {
       _isProcessing = false;
       return; // 処理するジョブがない
@@ -135,6 +134,8 @@ class CacheDownloaderService {
           // 10ファイルごと、または最後のファイルの場合に進捗をDBに保存
           if (downloadCount % 10 == 0 || file == filesToCache.last) {
             await dbService.updateCacheJob(jobToProcess);
+            // UIに進捗を通知
+            jobsNotifier.value = List.from(jobsNotifier.value);
           }
 
         } catch (e, stacktrace) {
@@ -215,14 +216,11 @@ class CacheDownloaderService {
   }
 
   void _updateJobStatus(CacheJob job, String newStatus) {
-    final index = _jobs.indexWhere((j) => j.id == job.id);
+    final index = jobsNotifier.value.indexWhere((j) => j.id == job.id);
     if (index != -1) {
       final updatedJob = job.copyWith(status: newStatus);
-      _jobs[index] = updatedJob;
-      // メモリ上のジョブオブジェクトも更新する
-      if (job.id == _jobs[index].id) {
-          job.status = newStatus;
-      }
+      jobsNotifier.value[index] = updatedJob;
+      jobsNotifier.value = List.from(jobsNotifier.value); // これでValueNotifierが変更を検知
     }
   }
 }

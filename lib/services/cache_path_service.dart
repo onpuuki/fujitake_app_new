@@ -9,7 +9,7 @@ class CachePathService {
   static final CachePathService instance = CachePathService._();
 
   Future<String> _getBaseDir() async {
-    final dir = await getApplicationSupportDirectory();
+    final dir = await getApplicationDocumentsDirectory();
     final cacheBaseDir = Directory(p.join(dir.path, 'nas_cache'));
     if (!await cacheBaseDir.exists()) {
       await cacheBaseDir.create(recursive: true);

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../models/cache_job_model.dart';
 import '../services/database_service.dart';
+import '../services/cache_downloader_service.dart';
 
 import '../services/cache_path_service.dart';
 import '../services/nas_server_service.dart';
@@ -15,18 +16,7 @@ class CacheListScreen extends StatefulWidget {
 }
 
 class _CacheListScreenState extends State<CacheListScreen> {
-  late Future<List<CacheJob>> _cacheJobsFuture;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadCacheJobs();
-  }
-
-  void _loadCacheJobs() {
-    _cacheJobsFuture = DatabaseService.instance.getCacheJobs();
-    setState(() {}); // FutureBuilderを再ビルドさせる
-  }
+  final CacheDownloaderService _cacheDownloaderService = CacheDownloaderService.instance;
 
   @override
   Widget build(BuildContext context) {
@@ -45,18 +35,13 @@ class _CacheListScreenState extends State<CacheListScreen> {
           ),
         ],
       ),
-      body: FutureBuilder<List<CacheJob>>(
-        future: _cacheJobsFuture,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          } else if (snapshot.hasError) {
-            return Center(child: Text('エラーが発生しました: ${snapshot.error}'));
-          } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
+      body: ValueListenableBuilder<List<CacheJob>>(
+        valueListenable: _cacheDownloaderService.jobsNotifier,
+        builder: (context, cacheJobs, child) {
+          if (cacheJobs.isEmpty) {
             return const Center(child: Text('キャッシュされたアイテムはありません。'));
           }
 
-          final cacheJobs = snapshot.data!;
           return ListView.builder(
             itemCount: cacheJobs.length,
             itemBuilder: (context, index) {
@@ -74,7 +59,6 @@ class _CacheListScreenState extends State<CacheListScreen> {
                     const SizedBox(height: 4),
                     Text('ステータス: ${job.status}'),
                     Text('進行状況: ${(job.downloadedSize / 1024 / 1024).toStringAsFixed(2)}MB / ${(job.totalSize / 1024 / 1024).toStringAsFixed(2)}MB'),
-
                   ],
                 ),
                 trailing: IconButton(
@@ -123,7 +107,7 @@ class _CacheListScreenState extends State<CacheListScreen> {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(content: Text('${job.remotePath} のキャッシュを削除しました。')),
                   );
-                  _loadCacheJobs(); // リストを再読み込み
+
                 }
               },
             ),

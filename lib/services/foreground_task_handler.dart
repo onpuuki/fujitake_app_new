@@ -21,7 +21,7 @@ class CacheDownloaderTaskHandler extends TaskHandler {
   @override
   void onRepeatEvent(DateTime timestamp) {
     // 実行中のジョブ数を取得して通知を更新
-    final jobs = _downloaderService.getJobs();
+    final jobs = _downloaderService.jobsNotifier.value;
     final processingJobs = jobs.where((j) => j.status == 'calculating' || j.status == 'downloading').length;
     final pendingJobs = jobs.where((j) => j.status == 'pending').length;
 

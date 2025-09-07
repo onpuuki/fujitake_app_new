@@ -63,10 +63,21 @@ class NasFileBrowserScreen extends StatefulWidget {
   @override
   State<NasFileBrowserScreen> createState() => _NasFileBrowserScreenState();
 }
+
+enum SortOptionValue {
+  nameAsc,
+  nameDesc,
+  sizeAsc,
+  sizeDesc,
+  dateAsc,
+  dateDesc,
+}
+
 class _NasFileBrowserScreenState extends State<NasFileBrowserScreen> {
   static const _smbChannel = MethodChannel('com.example.fujitake_app_new/smb');
   final CacheDownloaderService _cacheDownloaderService = CacheDownloaderService.instance;
   
+  SortOptionValue _sortOptionValue = SortOptionValue.dateDesc;
   List<SmbNativeFile> _files = [];
   String _currentPath = '';
   bool _isLoading = true;
@@ -131,6 +142,7 @@ class _NasFileBrowserScreenState extends State<NasFileBrowserScreen> {
             .where((file) => file.name.isNotEmpty) // nameが空でないものだけをリストに追加
             .toList();
         _isLoading = false;
+        _sortFiles();
       });
     } on PlatformException catch (e) {
       setState(() {
@@ -208,15 +220,127 @@ class _NasFileBrowserScreenState extends State<NasFileBrowserScreen> {
     return true;
   }
 
+
+  void _sortFiles() {
+    _files.sort((a, b) {
+      // ディレクトリは常にファイルの前に来るようにする
+      if (a.isDirectory && !b.isDirectory) {
+        return -1;
+      }
+      if (!a.isDirectory && b.isDirectory) {
+        return 1;
+      }
+
+      int compareResult;
+      switch (_sortOptionValue) {
+        case SortOptionValue.nameAsc:
+        case SortOptionValue.nameDesc:
+          compareResult = a.name.compareTo(b.name);
+          break;
+        case SortOptionValue.sizeAsc:
+        case SortOptionValue.sizeDesc:
+          compareResult = a.size.compareTo(b.size);
+          break;
+        case SortOptionValue.dateAsc:
+        case SortOptionValue.dateDesc:
+          compareResult = a.lastModified.compareTo(b.lastModified);
+          break;
+      }
+
+      if (_sortOptionValue == SortOptionValue.nameDesc ||
+          _sortOptionValue == SortOptionValue.sizeDesc ||
+          _sortOptionValue == SortOptionValue.dateDesc) {
+        return -compareResult;
+      }
+      return compareResult;
+    });
+    setState(() {});
+  }
+
+  void _showSortDialog() {
+    showDialog(
+      context: context,
+      builder: (context) {
+        SortOptionValue? tempSortOptionValue = _sortOptionValue;
+
+        return StatefulBuilder(
+          builder: (context, setState) {
+            return AlertDialog(
+              title: const Text('リストの並べ替え'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  RadioListTile<SortOptionValue>(
+                    title: const Text('ファイル名'),
+                    value: SortOptionValue.nameAsc,
+                    groupValue: tempSortOptionValue,
+                    onChanged: (value) => setState(() => tempSortOptionValue = value),
+                  ),
+                  RadioListTile<SortOptionValue>(
+                    title: const Text('ファイル名(降順)'),
+                    value: SortOptionValue.nameDesc,
+                    groupValue: tempSortOptionValue,
+                    onChanged: (value) => setState(() => tempSortOptionValue = value),
+                  ),
+                  RadioListTile<SortOptionValue>(
+                    title: const Text('ファイルサイズ'),
+                    value: SortOptionValue.sizeAsc,
+                    groupValue: tempSortOptionValue,
+                    onChanged: (value) => setState(() => tempSortOptionValue = value),
+                  ),
+                  RadioListTile<SortOptionValue>(
+                    title: const Text('ファイルサイズ(降順)'),
+                    value: SortOptionValue.sizeDesc,
+                    groupValue: tempSortOptionValue,
+                    onChanged: (value) => setState(() => tempSortOptionValue = value),
+                  ),
+                  RadioListTile<SortOptionValue>(
+                    title: const Text('日付'),
+                    value: SortOptionValue.dateAsc,
+                    groupValue: tempSortOptionValue,
+                    onChanged: (value) => setState(() => tempSortOptionValue = value),
+                  ),
+                  RadioListTile<SortOptionValue>(
+                    title: const Text('日付(降順)'),
+                    value: SortOptionValue.dateDesc,
+                    groupValue: tempSortOptionValue,
+                    onChanged: (value) => setState(() => tempSortOptionValue = value),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('キャンセル'),
+                ),
+                TextButton(
+                  onPressed: () {
+                    this.setState(() {
+                      _sortOptionValue = tempSortOptionValue!;
+                    });
+                    _sortFiles();
+                    Navigator.of(context).pop();
+                  },
+                  child: const Text('確認'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
   AppBar _buildAppBar() {
     return AppBar(
       title: Text(widget.server.nickname),
       actions: [
         IconButton(
-          icon: const Icon(Icons.bug_report),
-          onPressed: _showDebugLogDialog,
-          tooltip: 'デバッグログを表示',
+          icon: const Icon(Icons.sort),
+          onPressed: _showSortDialog,
+          tooltip: '並べ替え',
         ),
+
         PopupMenuButton<String>(
           onSelected: (value) {
             if (value == 'cache_list') {

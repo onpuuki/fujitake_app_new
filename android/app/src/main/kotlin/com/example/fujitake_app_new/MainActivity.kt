@@ -165,6 +165,21 @@ class MainActivity : FlutterActivity() {
             .setInputData(data)
             .build()
 
+        WorkManager.getInstance(applicationContext).getWorkInfoByIdLiveData(downloadWorkRequest.id)
+            .observe(this, { workInfo ->
+                if (workInfo != null) {
+                    val progress = workInfo.progress
+                    val localPath = progress.getString("localPath")
+                    val fileSize = progress.getLong("fileSize", 0)
+                    if (localPath != null && fileSize > 0) {
+                        methodChannel?.invokeMethod("onDownloadProgress", mapOf(
+                            "localPath" to localPath,
+                            "fileSize" to fileSize
+                        ))
+                    }
+                }
+            })
+
         WorkManager.getInstance(applicationContext).enqueue(downloadWorkRequest)
         result.success(true)
     }

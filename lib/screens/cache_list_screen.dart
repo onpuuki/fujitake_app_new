@@ -1,135 +1,55 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../services/cache_downloader_service.dart';
 import '../models/cache_job_model.dart';
-import '../services/database_service.dart';
 
-import '../services/cache_path_service.dart';
-import '../services/nas_server_service.dart';
-
-import './debug_log_screen.dart';
-
-class CacheListScreen extends StatefulWidget {
+class CacheListScreen extends StatelessWidget {
   const CacheListScreen({super.key});
 
   @override
-  State<CacheListScreen> createState() => _CacheListScreenState();
-}
-
-class _CacheListScreenState extends State<CacheListScreen> {
-  late Future<List<CacheJob>> _cacheJobsFuture;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadCacheJobs();
-  }
-
-  void _loadCacheJobs() {
-    _cacheJobsFuture = DatabaseService.instance.getCacheJobs();
-    setState(() {}); // FutureBuilderを再ビルドさせる
-  }
-
-  @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('キャッシュ一覧'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.bug_report),
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (context) => const DebugLogScreen()),
-              );
-            },
-          ),
-        ],
-      ),
-      body: FutureBuilder<List<CacheJob>>(
-        future: _cacheJobsFuture,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          } else if (snapshot.hasError) {
-            return Center(child: Text('エラーが発生しました: ${snapshot.error}'));
-          } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
-            return const Center(child: Text('キャッシュされたアイテムはありません。'));
-          }
-
-          final cacheJobs = snapshot.data!;
-          return ListView.builder(
-            itemCount: cacheJobs.length,
-            itemBuilder: (context, index) {
-              final job = cacheJobs[index];
-              return ListTile(
-                title: Text(job.remotePath),
-                subtitle: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const SizedBox(height: 4),
-                    LinearProgressIndicator(
-                      value: job.totalSize > 0 ? job.downloadedSize / job.totalSize : 0.0,
-                      backgroundColor: Colors.grey[300],
-                    ),
-                    const SizedBox(height: 4),
-                    Text('ステータス: ${job.status}'),
-                    Text('進行状況: ${(job.downloadedSize / 1024 / 1024).toStringAsFixed(2)}MB / ${(job.totalSize / 1024 / 1024).toStringAsFixed(2)}MB'),
-
-                  ],
-                ),
-                trailing: IconButton(
-                  icon: const Icon(Icons.delete_outline),
-                  onPressed: () => _showDeleteConfirmation(context, job),
-                ),
-              );
-            },
+    return ChangeNotifierProvider.value(
+      value: CacheDownloaderService.instance,
+      child: Consumer<CacheDownloaderService>(
+        builder: (context, service, child) {
+          final jobs = service.getJobs();
+          return Scaffold(
+            appBar: AppBar(
+              title: const Text('キャッシュ一覧'),
+            ),
+            body: ListView.builder(
+              itemCount: jobs.length,
+              itemBuilder: (context, index) {
+                final job = jobs[index];
+                return ListTile(
+                  title: Text(job.remotePath),
+                  subtitle: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('サーバー: ${job.serverId}'), // serverNicknameがないためserverIdを使用
+                      Text('ステータス: ${job.status}'),
+                      if (job.status == 'downloading' || job.status == 'completed')
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const SizedBox(height: 4),
+                            LinearProgressIndicator(
+                              value: job.totalSize > 0 ? job.downloadedSize / job.totalSize : 0,
+                              backgroundColor: Colors.grey[300],
+                              valueColor: const AlwaysStoppedAnimation<Color>(Colors.blue),
+                            ),
+                            const SizedBox(height: 4),
+                            Text('進捗: ${(job.downloadedSize / 1024 / 1024).toStringAsFixed(2)}MB / ${(job.totalSize / 1024 / 1024).toStringAsFixed(2)}MB'),
+                          ],
+                        ),
+                    ],
+                  ),
+                );
+              },
+            ),
           );
         },
       ),
-    );
-  }
-
-  void _showDeleteConfirmation(BuildContext context, CacheJob job) {
-    showDialog(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: const Text('キャッシュの削除'),
-          content: Text('${job.remotePath} のキャッシュを削除しますか？\nダウンロード済みのファイルもすべて削除されます。'),
-          actions: [
-            TextButton(
-              child: const Text('キャンセル'),
-              onPressed: () => Navigator.of(context).pop(),
-            ),
-            TextButton(
-              child: Text('削除', style: TextStyle(color: Colors.red[700])),
-              onPressed: () async {
-                Navigator.of(context).pop();
-                if (job.id != null) {
-                  // 1. ダウンロードされたファイルを削除
-                  // Note: 本来は _listAllFilesRecursive のような仕組みで全ファイルをリストアップして削除すべきだが、
-                  // ここでは簡略化のため、ジョブのルートパスに対応するディレクトリ/ファイルを削除する想定
-                  try {
-                    await CachePathService.instance.deleteCacheForJob(job.serverId, job.remotePath);
-                  } catch (e) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('ファイルの削除に失敗しました: $e')),
-                    );
-                    // ファイル削除に失敗してもDBからの削除は試みる
-                  }
-
-                  // 2. データベースからジョブを削除
-                  await DatabaseService.instance.deleteCacheJob(job.id!);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('${job.remotePath} のキャッシュを削除しました。')),
-                  );
-                  _loadCacheJobs(); // リストを再読み込み
-                }
-              },
-            ),
-          ],
-        );
-      },
     );
   }
 }

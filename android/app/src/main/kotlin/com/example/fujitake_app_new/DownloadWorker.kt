@@ -39,6 +39,13 @@ class DownloadWorker(appContext: Context, workerParams: WorkerParameters) : Coro
                     inputStream.copyTo(outputStream)
                 }
             }
+            
+            val progressData = workDataOf(
+                "localPath" to localPath,
+                "fileSize" to destinationFile.length()
+            )
+            setProgress(progressData)
+
             Result.success()
         } catch (e: Exception) {
             Result.failure(workDataOf("error" to e.message))

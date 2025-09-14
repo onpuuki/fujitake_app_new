@@ -275,8 +275,9 @@ class MainActivity : FlutterActivity() {
                 sendDebugLog("WebServer: Base SmbFile path: ${smbFile.path}")
 
                 val pathComponents = path.split('/').filter { it.isNotEmpty() }
-                pathComponents.forEach { component ->
-                    smbFile = SmbFile(smbFile, "$component/")
+                pathComponents.forEachIndexed { index, component ->
+                    val suffix = if (index == pathComponents.lastIndex) "" else "/"
+                    smbFile = SmbFile(smbFile, "$component$suffix")
                     sendDebugLog("WebServer: Incrementally built SmbFile path: ${smbFile.path}")
                 }
                 
@@ -604,13 +605,38 @@ class MainActivity : FlutterActivity() {
 class WebServer(private val smbFile: SmbFile, private val log: (String) -> Unit, private val context: Context) : NanoHTTPD(0) {
     override fun serve(session: IHTTPSession): Response {
         log("WebServer: Received request for ${session.uri}")
-        return try {
-            val mimeType = context.contentResolver.getType(android.net.Uri.fromFile(File(smbFile.name))) ?: "application/octet-stream"
-            val inputStream = smbFile.inputStream
-            newChunkedResponse(Response.Status.OK, mimeType, inputStream)
+        try {
+            val rangeHeader = session.headers["range"]
+            val totalSize = smbFile.length()
+
+            if (rangeHeader != null && rangeHeader.startsWith("bytes=")) {
+                val range = rangeHeader.substring("bytes=".length)
+                val parts = range.split("-")
+                val start = parts[0].toLongOrNull() ?: 0
+                val end = (if (parts.size > 1 && parts[1].isNotEmpty()) parts[1].toLongOrNull() else totalSize - 1) ?: (totalSize - 1)
+
+                if (start >= totalSize) {
+                    return newFixedLengthResponse(Response.Status.RANGE_NOT_SATISFIABLE, MIME_PLAINTEXT, "Range Not Satisfiable")
+                }
+
+                val contentLength = end - start + 1
+                val inputStream = smbFile.inputStream.apply { skip(start) }
+                
+                val response = newFixedLengthResponse(Response.Status.PARTIAL_CONTENT, "video/mp4", inputStream, contentLength)
+                response.addHeader("Content-Length", contentLength.toString())
+                response.addHeader("Content-Range", "bytes $start-$end/$totalSize")
+                response.addHeader("Accept-Ranges", "bytes")
+                return response
+            } else {
+                val inputStream = smbFile.inputStream
+                val response = newFixedLengthResponse(Response.Status.OK, "video/mp4", inputStream, totalSize)
+                response.addHeader("Content-Length", totalSize.toString())
+                response.addHeader("Accept-Ranges", "bytes")
+                return response
+            }
         } catch (e: Exception) {
             log("WebServer: [ERROR] in serve: ${e.message}\n${e.stackTraceToString()}")
-            newFixedLengthResponse(Response.Status.INTERNAL_ERROR, MIME_PLAINTEXT, "Error serving file: ${e.message}")
+            return newFixedLengthResponse(Response.Status.INTERNAL_ERROR, MIME_PLAINTEXT, "Error: ${e.message}")
         }
     }
 }

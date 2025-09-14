@@ -9,6 +9,11 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import androidx.lifecycle.Observer
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.delay
+import android.os.Handler
+import android.os.Looper
 import android.graphics.drawable.Icon
 import android.os.Build
 import android.os.Bundle
@@ -17,11 +22,7 @@ import android.util.Log
 import android.util.Rational
 import androidx.annotation.RequiresApi
 import androidx.core.app.NotificationCompat
-import androidx.work.CoroutineWorker
-import androidx.work.OneTimeWorkRequestBuilder
-import androidx.work.WorkManager
-import androidx.work.WorkerParameters
-import androidx.work.workDataOf
+
 import fi.iki.elonen.NanoHTTPD
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -35,6 +36,7 @@ import java.util.Properties
 import jcifs.CIFSContext
 import jcifs.config.PropertyConfiguration
 import jcifs.context.SingletonContext
+import jcifs.CIFSException
 import jcifs.smb.NtlmPasswordAuthenticator
 import jcifs.smb.SmbFile
 import jcifs.smb.SmbFileInputStream
@@ -56,7 +58,9 @@ class MainActivity : FlutterActivity() {
     private val NOTIFICATION_ID = 1
     private val CHANNEL_ID = "download_channel"
 
+
     companion object {
+        var methodChannel: MethodChannel? = null
         const val ACTION_PIP_CONTROL = "com.example.fujitake_app_new.PIP_CONTROL"
         const val ACTION_PIP_CONTROL_INTERNAL = "com.example.fujitake_app_new.PIP_CONTROL_INTERNAL"
         const val EXTRA_CONTROL_TYPE = "control_type"
@@ -118,6 +122,7 @@ class MainActivity : FlutterActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         methodChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
+        Companion.methodChannel = methodChannel
 
         notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         createNotificationChannel()
@@ -139,34 +144,77 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun handleDownloadFile(call: MethodCall, result: MethodChannel.Result) {
-        val host = call.argument<String>("host")
-        val shareName = call.argument<String>("shareName")
-        val remotePath = call.argument<String>("remotePath")
-        val localPath = call.argument<String>("localPath")
-        val username = call.argument<String>("username")
-        val password = call.argument<String>("password")
-        val domain = call.argument<String>("domain")
-        if (host == null || shareName == null || remotePath == null || localPath == null) {
-            result.error("INVALID_ARGUMENTS", "Missing required arguments for download.", null)
-            return
+        lifecycleScope.launch {
+            val host = call.argument<String>("host")
+            val shareName = call.argument<String>("shareName")
+            val username = call.argument<String>("username")
+            val password = call.argument<String>("password")
+            val remotePath = call.argument<String>("remotePath")
+            val localPath = call.argument<String>("localPath")
+            val jobId = call.argument<Int>("jobId")
+
+            if (host == null || shareName == null || username == null || password == null || remotePath == null || localPath == null || jobId == null) {
+                result.error("INVALID_ARGUMENTS", "Missing arguments for downloadFile", null)
+                return@launch
+            }
+
+            try {
+                val downloadedSize = downloadSmbFile(host, shareName, username, password, remotePath, localPath, jobId)
+                result.success(mapOf("downloadedSize" to downloadedSize))
+            } catch (e: Exception) {
+                result.error("DOWNLOAD_FAILED", e.message, e.stackTraceToString())
+            }
         }
+    }
 
-        val data = workDataOf(
-            "host" to host,
-            "shareName" to shareName,
-            "filePath" to remotePath,
-            "localPath" to localPath,
-            "username" to username,
-            "password" to password,
-            "domain" to domain
-        )
+    private suspend fun downloadSmbFile(
+        host: String,
+        shareName: String,
+        username: String,
+        password: String,
+        remotePath: String,
+        localPath: String,
+        jobId: Int
+    ): Long = withContext(Dispatchers.IO) {
+        val url = "smb://$host/$shareName/$remotePath"
+        val properties = Properties()
+        properties.setProperty("jcifs.smb.client.minVersion", "SMB202")
+        properties.setProperty("jcifs.smb.client.maxVersion", "SMB311")
+        try {
+            SingletonContext.init(properties)
+        } catch (e: CIFSException) {
+            // Context may already be initialized, which is fine.
+        }
+        val context = SingletonContext.getInstance()
+        val auth = NtlmPasswordAuthenticator(null, username, password)
+        val cifsContext = context.withCredentials(auth)
 
-        val downloadWorkRequest = OneTimeWorkRequestBuilder<DownloadWorker>()
-            .setInputData(data)
-            .build()
+        SmbFile(url, cifsContext).use { smbFile ->
+            val totalSize = smbFile.length()
+            File(localPath).outputStream().use { fileOutputStream ->
+                smbFile.inputStream.use { smbInputStream ->
+                    val buffer = ByteArray(8192)
+                    var bytesRead: Int
+                    var downloadedSize = 0L
+                    while (smbInputStream.read(buffer).also { bytesRead = it } != -1) {
+                        fileOutputStream.write(buffer, 0, bytesRead)
+                        downloadedSize += bytesRead
 
-        WorkManager.getInstance(applicationContext).enqueue(downloadWorkRequest)
-        result.success(true)
+                        // Notify Flutter of the progress
+                        val progressData = mapOf(
+                            "jobId" to jobId,
+                            "downloadedSize" to downloadedSize.toString()
+                        )
+                        Handler(Looper.getMainLooper()).post {
+                            MainActivity.methodChannel?.invokeMethod("downloadProgress", progressData)
+                        }
+                        // Add a small delay to allow the UI to update
+                        delay(50)
+                    }
+                    return@withContext downloadedSize
+                }
+            }
+        }
     }
 
     // ... (Rest of the methods from the original MainActivity.kt, unchanged)
@@ -552,55 +600,10 @@ class MainActivity : FlutterActivity() {
         unregisterReceiver(pipControlReceiver)
     }
 
-    class DownloadWorker(appContext: Context, workerParams: WorkerParameters) : CoroutineWorker(appContext, workerParams) {
-        override suspend fun doWork(): Result {
-            val host = inputData.getString("host") ?: return Result.failure()
-            val shareName = inputData.getString("shareName") ?: return Result.failure()
-            val filePath = inputData.getString("filePath") ?: return Result.failure()
-            val localPath = inputData.getString("localPath") ?: return Result.failure()
-            val username = inputData.getString("username")
-            val password = inputData.getString("password")
-            val domain = inputData.getString("domain")
 
 
-            return try {
-                val context = createCifsContext(domain, username, password)
-                val auth = NtlmPasswordAuthenticator(domain, username, password)
-                val url = "smb://$host/$shareName/$filePath"
-                val sourceFile = SmbFile(url, context.withCredentials(auth))
-
-                val destinationFile = File(localPath)
-                destinationFile.parentFile?.mkdirs()
-
-                SmbFileInputStream(sourceFile).use { inputStream ->
-                    FileOutputStream(destinationFile).use { outputStream ->
-                        inputStream.copyTo(outputStream)
-                    }
-                }
-                Result.success()
-            } catch (e: Exception) {
-                Result.failure(workDataOf("error" to e.message))
-            }
-        }
-
-        private fun createCifsContext(domain: String?, username: String?, password: String?): CIFSContext {
-            val props = Properties()
-            props["jcifs.smb.client.soTimeout"] = "35000"
-            props["jcifs.smb.client.responseTimeout"] = "35000"
-            props["jcifs.smb.client.minVersion"] = "SMB202"
-            props["jcifs.smb.client.maxVersion"] = "SMB311"
-            props["jcifs.smb.client.ipcSigningEnforced"] = "false"
 
 
-            props["jcifs.smb.client.signingEnforced"] = "false"
-            props["jcifs.smb.client.smb2.signingEnforced"] = "false"
-            props["jcifs.smb.client.useSMB21"] = "true"
-            props["jcifs.smb.client.dfs.disabled"] = "true"
-
-            val config = PropertyConfiguration(props)
-            return SingletonContext.getInstance()
-        }
-    }
 }
 class WebServer(private val smbFile: SmbFile, private val log: (String) -> Unit, private val context: Context) : NanoHTTPD(0) {
     override fun serve(session: IHTTPSession): Response {

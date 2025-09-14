@@ -613,7 +613,7 @@ class WebServer(private val smbFile: SmbFile, private val log: (String) -> Unit,
                 val range = rangeHeader.substring("bytes=".length)
                 val parts = range.split("-")
                 val start = parts[0].toLongOrNull() ?: 0
-                val end = if (parts.size > 1 && parts[1].isNotEmpty()) parts[1].toLongOrNull() else totalSize - 1
+                val end = (if (parts.size > 1 && parts[1].isNotEmpty()) parts[1].toLongOrNull() else totalSize - 1) ?: (totalSize - 1)
 
                 if (start >= totalSize) {
                     return newFixedLengthResponse(Response.Status.RANGE_NOT_SATISFIABLE, MIME_PLAINTEXT, "Range Not Satisfiable")

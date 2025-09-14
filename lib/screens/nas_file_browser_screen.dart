@@ -12,6 +12,7 @@ import 'video_viewer_screen.dart';
 import '../models/cache_job_model.dart';
 import '../services/cache_downloader_service.dart';
 import '../services/global_log.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 // ネイティブから受け取るファイル情報を表すクラス
 class SmbNativeFile {
@@ -75,6 +76,7 @@ enum SortOptionValue {
 
 class _NasFileBrowserScreenState extends State<NasFileBrowserScreen> {
   static const _smbChannel = MethodChannel('com.example.fujitake_app_new/smb');
+  static const String _sortOptionKey = 'nas_sort_option';
   final CacheDownloaderService _cacheDownloaderService = CacheDownloaderService.instance;
   
   SortOptionValue _sortOptionValue = SortOptionValue.dateDesc;
@@ -94,7 +96,9 @@ class _NasFileBrowserScreenState extends State<NasFileBrowserScreen> {
     super.initState();
     _currentShare = widget.server.shareName;
     _smbChannel.setMethodCallHandler(_handleNativeMethodCalls);
-    _listFiles(path: '');
+    _loadSortOption().then((_) {
+      _listFiles(path: '');
+    });
   }
 
   Future<dynamic> _handleNativeMethodCalls(MethodCall call) async {
@@ -109,6 +113,25 @@ class _NasFileBrowserScreenState extends State<NasFileBrowserScreen> {
       default:
         break;
     }
+  }
+
+  Future<void> _loadSortOption() async {
+    final prefs = await SharedPreferences.getInstance();
+    final sortOptionName = prefs.getString(_sortOptionKey);
+    if (sortOptionName != null) {
+      try {
+        setState(() {
+          _sortOptionValue = SortOptionValue.values.firstWhere((e) => e.name == sortOptionName);
+        });
+      } catch (e) {
+        // 保存された値が無効な場合はデフォルト値を使用
+      }
+    }
+  }
+
+  Future<void> _saveSortOption(SortOptionValue value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_sortOptionKey, value.name);
   }
 
   Future<void> _listFiles({String path = ''}) async {
@@ -315,10 +338,13 @@ class _NasFileBrowserScreenState extends State<NasFileBrowserScreen> {
                 ),
                 TextButton(
                   onPressed: () {
-                    this.setState(() {
-                      _sortOptionValue = tempSortOptionValue!;
-                    });
-                    _sortFiles();
+                    if (tempSortOptionValue != null) {
+                      _saveSortOption(tempSortOptionValue!);
+                      setState(() {
+                        _sortOptionValue = tempSortOptionValue!;
+                      });
+                      _sortFiles();
+                    }
                     Navigator.of(context).pop();
                   },
                   child: const Text('確認'),

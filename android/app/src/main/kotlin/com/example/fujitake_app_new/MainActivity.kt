@@ -275,8 +275,9 @@ class MainActivity : FlutterActivity() {
                 sendDebugLog("WebServer: Base SmbFile path: ${smbFile.path}")
 
                 val pathComponents = path.split('/').filter { it.isNotEmpty() }
-                pathComponents.forEach { component ->
-                    smbFile = SmbFile(smbFile, "$component/")
+                pathComponents.forEachIndexed { index, component ->
+                    val suffix = if (index == pathComponents.lastIndex) "" else "/"
+                    smbFile = SmbFile(smbFile, "$component$suffix")
                     sendDebugLog("WebServer: Incrementally built SmbFile path: ${smbFile.path}")
                 }
                 

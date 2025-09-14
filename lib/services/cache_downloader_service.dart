@@ -25,6 +25,7 @@ class CacheDownloaderService {
     final incompleteJobs = await DatabaseService.instance.getIncompleteCacheJobs();
     _jobs.addAll(incompleteJobs);
     print('[CacheDownloaderService] Initialized with ${incompleteJobs.length} incomplete jobs.');
+    _smbChannel.setMethodCallHandler(_handleMethod);
   }
 
 
@@ -115,7 +116,8 @@ class CacheDownloaderService {
 
         try {
           DebugLogService().addLog('[_processPendingJobs] Invoking native download: "$remoteFilePath" -> "$localFilePath"');
-          final bool downloadSuccess = await _smbChannel.invokeMethod('downloadFile', {
+          await _smbChannel.invokeMethod('downloadFile', {
+            'jobId': jobToProcess.id,
             'host': server.host,
             'shareName': jobToProcess.shareName,
             'username': server.username,
@@ -123,19 +125,9 @@ class CacheDownloaderService {
             'remotePath': remoteFilePath,
             'localPath': localFilePath,
           });
-
-          if (downloadSuccess != true) {
-            throw Exception('Native download failed. See native logs for details.');
-          }
           DebugLogService().addLog('[_processPendingJobs] Native download successful for "$localFilePath"');
 
-          jobToProcess.downloadedSize += file.size;
-          downloadCount++;
 
-          // 10ファイルごと、または最後のファイルの場合に進捗をDBに保存
-          if (downloadCount % 10 == 0 || file == filesToCache.last) {
-            await dbService.updateCacheJob(jobToProcess);
-          }
 
         } catch (e, stacktrace) {
           final errorMsg = 'Failed to download file $remoteFilePath to $localFilePath. Error: $e';
@@ -225,5 +217,25 @@ class CacheDownloaderService {
       }
     }
   }
+
+  Future<dynamic> _handleMethod(MethodCall call) async {
+    switch (call.method) {
+      case 'downloadProgress':
+        final args = call.arguments as Map<Object?, Object?>;
+        final jobId = args['jobId'] as int;
+        final downloadedSizeStr = args['downloadedSize'] as String;
+        final downloadedSize = int.parse(downloadedSizeStr);
+
+        final job = _jobs.firstWhereOrNull((j) => j.id == jobId);
+        if (job != null) {
+          job.downloadedSize = downloadedSize;
+          await DatabaseService.instance.updateCacheJob(job);
+        }
+        break;
+      default:
+        throw MissingPluginException();
+    }
+  }
 }
+
 

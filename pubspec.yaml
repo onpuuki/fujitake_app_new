@@ -71,6 +71,7 @@ dependencies:
 
   collection: ^1.18.0
   crypto: ^3.0.6
+  image: ^4.5.4
 dev_dependencies:
   flutter_test:
     sdk: flutter

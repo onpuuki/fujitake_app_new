@@ -20,6 +20,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:video_thumbnail/video_thumbnail.dart';
 import 'package:path/path.dart' as p;
 import 'package:fujitake_app_new/services/cache_path_service.dart';
+import 'package:image/image.dart' as img;
 
 
 
@@ -570,6 +571,11 @@ class _NasFileBrowserScreenState extends State<NasFileBrowserScreen> {
     return const CircularProgressIndicator(); // 初期表示
   }
   
+  bool _isImageFile(String fileName) {
+    final ext = p.extension(fileName).toLowerCase();
+    return ext == '.jpg' || ext == '.jpeg' || ext == '.png' || ext == '.gif' || ext == '.bmp' || ext == '.webp';
+  }
+
   Future<void> _getThumbnailData(SmbNativeFile file) async {
     final cacheKey = p.join(widget.server.shareName!, _currentPath, file.name);
     if (_thumbnailCache.containsKey(cacheKey)) {
@@ -601,12 +607,22 @@ class _NasFileBrowserScreenState extends State<NasFileBrowserScreen> {
     if (localPath != null && await File(localPath).exists()) {
       // ローカルファイルからサムネイルを生成
       try {
-        final Uint8List? thumbnail = await VideoThumbnail.thumbnailData(
-          video: localPath,
-          imageFormat: ImageFormat.JPEG,
-          maxWidth: 128,
-          quality: 25,
-        );
+        Uint8List? thumbnail;
+        if (_isVideoFile(file.name)) {
+          thumbnail = await VideoThumbnail.thumbnailData(
+            video: localPath,
+            imageFormat: ImageFormat.JPEG,
+            maxWidth: 128,
+            quality: 25,
+          );
+        } else if (_isImageFile(file.name)) {
+          final imageBytes = await File(localPath).readAsBytes();
+          final image = img.decodeImage(imageBytes);
+          if (image != null) {
+            final resizedImage = img.copyResize(image, width: 128);
+            thumbnail = Uint8List.fromList(img.encodeJpg(resizedImage, quality: 25));
+          }
+        }
 
         if (thumbnail != null) {
           await cacheFile.writeAsBytes(thumbnail);

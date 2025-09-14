@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'dart:async';
+
 import '../models/cache_job_model.dart';
 import '../services/database_service.dart';
 
@@ -16,11 +18,21 @@ class CacheListScreen extends StatefulWidget {
 
 class _CacheListScreenState extends State<CacheListScreen> {
   late Future<List<CacheJob>> _cacheJobsFuture;
+  Timer? _timer;
 
   @override
   void initState() {
     super.initState();
     _loadCacheJobs();
+    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      _loadCacheJobs();
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
   }
 
   void _loadCacheJobs() {

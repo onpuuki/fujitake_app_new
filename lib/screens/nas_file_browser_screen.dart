@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 import 'dart:typed_data';
@@ -617,11 +618,16 @@ class _NasFileBrowserScreenState extends State<NasFileBrowserScreen> {
           );
         } else if (_isImageFile(file.name)) {
           final imageBytes = await File(localPath).readAsBytes();
-          final image = img.decodeImage(imageBytes);
+          final image = await _decodeImage(imageBytes);
           if (image != null) {
             final resizedImage = img.copyResize(image, width: 128);
             thumbnail = Uint8List.fromList(img.encodeJpg(resizedImage, quality: 25));
           }
+
+Future<img.Image?> _decodeImage(Uint8List bytes) async {
+  return await compute(img.decodeImage, bytes);
+}
+
         }
 
         if (thumbnail != null) {

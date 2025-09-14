@@ -23,6 +23,7 @@ import 'package:path/path.dart' as p;
 import 'package:fujitake_app_new/services/cache_path_service.dart';
 import 'package:image/image.dart' as img;
 
+import 'package:fujitake_app_new/utils/image_utils.dart';
 
 
 // ネイティブから受け取るファイル情報を表すクラス
@@ -577,6 +578,7 @@ class _NasFileBrowserScreenState extends State<NasFileBrowserScreen> {
     return ext == '.jpg' || ext == '.jpeg' || ext == '.png' || ext == '.gif' || ext == '.bmp' || ext == '.webp';
   }
 
+
   Future<void> _getThumbnailData(SmbNativeFile file) async {
     final cacheKey = p.join(widget.server.shareName!, _currentPath, file.name);
     if (_thumbnailCache.containsKey(cacheKey)) {
@@ -618,7 +620,7 @@ class _NasFileBrowserScreenState extends State<NasFileBrowserScreen> {
           );
         } else if (_isImageFile(file.name)) {
           final imageBytes = await File(localPath).readAsBytes();
-          final image = await _decodeImage(imageBytes);
+          final image = await decodeImageInBackground(imageBytes);
           if (image != null) {
             final resizedImage = img.copyResize(image, width: 128);
             thumbnail = Uint8List.fromList(img.encodeJpg(resizedImage, quality: 25));

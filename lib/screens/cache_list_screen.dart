@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../models/cache_job_model.dart';
 import '../services/database_service.dart';
@@ -15,17 +16,49 @@ class CacheListScreen extends StatefulWidget {
 }
 
 class _CacheListScreenState extends State<CacheListScreen> {
-  late Future<List<CacheJob>> _cacheJobsFuture;
+  List<CacheJob> _cacheJobs = [];
+  Timer? _timer;
+  bool _isLoading = true;
 
   @override
   void initState() {
     super.initState();
-    _loadCacheJobs();
+    _loadCacheJobs(showLoading: true);
+    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      _loadCacheJobs();
+    });
   }
 
-  void _loadCacheJobs() {
-    _cacheJobsFuture = DatabaseService.instance.getCacheJobs();
-    setState(() {}); // FutureBuilderを再ビルドさせる
+  @override
+  void dispose() {
+    _timer?.cancel(); // Widgetが破棄される際にタイマーをキャンセル
+    super.dispose();
+  }
+
+  void _loadCacheJobs({bool showLoading = false}) async {
+    if (showLoading) {
+      setState(() {
+        _isLoading = true;
+      });
+    }
+    try {
+      final jobs = await DatabaseService.instance.getCacheJobs();
+      if (mounted) { // Widgetがまだマウントされているか確認
+        setState(() {
+          _cacheJobs = jobs;
+          if (showLoading) {
+            _isLoading = false;
+          }
+        });
+      }
+    } catch (e) {
+      // エラーハンドリング
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
   }
 
   @override
@@ -45,47 +78,36 @@ class _CacheListScreenState extends State<CacheListScreen> {
           ),
         ],
       ),
-      body: FutureBuilder<List<CacheJob>>(
-        future: _cacheJobsFuture,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          } else if (snapshot.hasError) {
-            return Center(child: Text('エラーが発生しました: ${snapshot.error}'));
-          } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
-            return const Center(child: Text('キャッシュされたアイテムはありません。'));
-          }
-
-          final cacheJobs = snapshot.data!;
-          return ListView.builder(
-            itemCount: cacheJobs.length,
-            itemBuilder: (context, index) {
-              final job = cacheJobs[index];
-              return ListTile(
-                title: Text(job.remotePath),
-                subtitle: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const SizedBox(height: 4),
-                    LinearProgressIndicator(
-                      value: job.totalSize > 0 ? job.downloadedSize / job.totalSize : 0.0,
-                      backgroundColor: Colors.grey[300],
-                    ),
-                    const SizedBox(height: 4),
-                    Text('ステータス: ${job.status}'),
-                    Text('進行状況: ${(job.downloadedSize / 1024 / 1024).toStringAsFixed(2)}MB / ${(job.totalSize / 1024 / 1024).toStringAsFixed(2)}MB'),
-
-                  ],
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : _cacheJobs.isEmpty
+              ? const Center(child: Text('キャッシュされたアイテムはありません。'))
+              : ListView.builder(
+                  itemCount: _cacheJobs.length,
+                  itemBuilder: (context, index) {
+                    final job = _cacheJobs[index];
+                    return ListTile(
+                      title: Text(job.remotePath),
+                      subtitle: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const SizedBox(height: 4),
+                          LinearProgressIndicator(
+                            value: job.totalSize > 0 ? job.downloadedSize / job.totalSize : 0.0,
+                            backgroundColor: Colors.grey[300],
+                          ),
+                          const SizedBox(height: 4),
+                          Text('ステータス: ${job.status}'),
+                          Text('進行状況: ${(job.downloadedSize / 1024 / 1024).toStringAsFixed(2)}MB / ${(job.totalSize / 1024 / 1024).toStringAsFixed(2)}MB'),
+                        ],
+                      ),
+                      trailing: IconButton(
+                        icon: const Icon(Icons.delete_outline),
+                        onPressed: () => _showDeleteConfirmation(context, job),
+                      ),
+                    );
+                  },
                 ),
-                trailing: IconButton(
-                  icon: const Icon(Icons.delete_outline),
-                  onPressed: () => _showDeleteConfirmation(context, job),
-                ),
-              );
-            },
-          );
-        },
-      ),
     );
   }
 
@@ -123,7 +145,7 @@ class _CacheListScreenState extends State<CacheListScreen> {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(content: Text('${job.remotePath} のキャッシュを削除しました。')),
                   );
-                  _loadCacheJobs(); // リストを再読み込み
+                  _loadCacheJobs(showLoading: true); // リストを再読み込み
                 }
               },
             ),

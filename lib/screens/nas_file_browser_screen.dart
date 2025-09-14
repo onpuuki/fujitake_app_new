@@ -13,6 +13,11 @@ import '../models/cache_job_model.dart';
 import '../services/cache_downloader_service.dart';
 import '../services/global_log.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:io';
+import 'dart:convert';
+import 'package:crypto/crypto.dart';
+import 'package:path_provider/path_provider.dart';
+
 
 // ネイティブから受け取るファイル情報を表すクラス
 class SmbNativeFile {
@@ -566,6 +571,22 @@ class _NasFileBrowserScreenState extends State<NasFileBrowserScreen> {
       return;
     }
 
+    // ディスクキャッシュのパスを生成
+    final cacheDir = await getTemporaryDirectory();
+    final hash = sha1.convert(utf8.encode(cacheKey)).toString();
+    final cacheFile = File('${cacheDir.path}/thumbnail_$hash.jpg');
+
+    // ディスクキャッシュが存在すればそれを読み込む
+    if (await cacheFile.exists()) {
+      final bytes = await cacheFile.readAsBytes();
+      if (mounted) {
+        setState(() {
+          _thumbnailCache[cacheKey] = bytes;
+        });
+      }
+      return;
+    }
+
     try {
       final Uint8List? thumbnail = await _smbChannel.invokeMethod('getThumbnail', {
         'host': widget.server.host,
@@ -579,16 +600,29 @@ class _NasFileBrowserScreenState extends State<NasFileBrowserScreen> {
           'isDirectory': file.isDirectory,
           'size': file.size,
           'lastModified': file.lastModified,
-        },
+          'path': file.fullPath,
+        }
       });
+
+      if (thumbnail != null) {
+        // 取得したサムネイルをディスクキャッシュに保存
+        await cacheFile.writeAsBytes(thumbnail);
+      }
 
       if (mounted) {
         setState(() {
           _thumbnailCache[cacheKey] = thumbnail;
         });
       }
-    } on PlatformException catch (e) {
+    } catch (e) {
+      GlobalLog.add('サムネイルの取得に失敗しました: $e');
       if (mounted) {
+        setState(() {
+          _thumbnailCache[cacheKey] = null;
+        });
+      }
+    }
+  }      if (mounted) {
         setState(() {
           _thumbnailCache[cacheKey] = null; // エラーがあった場合はnullをセット
         });

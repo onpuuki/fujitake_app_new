@@ -591,8 +591,9 @@ class _NasFileBrowserScreenState extends State<NasFileBrowserScreen> {
     }
 
     // フォルダキャッシュ（ファイル本体）の存在を確認
-    final localPath = await _cacheDownloaderService.getLocalPath(
-      'smb://${widget.server.ipAddress}/${widget.server.shareName}/${file.fullPath}',
+    final localPath = await _cachePathService.getLocalPath(
+      widget.server.id,
+      file.fullPath,
     );
 
     if (localPath != null && await File(localPath).exists()) {

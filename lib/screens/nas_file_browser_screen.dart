@@ -86,6 +86,7 @@ class _NasFileBrowserScreenState extends State<NasFileBrowserScreen> {
   static const _smbChannel = MethodChannel('com.example.fujitake_app_new/smb');
   static const String _sortOptionKey = 'nas_sort_option';
   final CacheDownloaderService _cacheDownloaderService = CacheDownloaderService.instance;
+  final CachePathService _cachePathService = CachePathService.instance;
   
   SortOptionValue _sortOptionValue = SortOptionValue.dateDesc;
   List<SmbNativeFile> _files = [];

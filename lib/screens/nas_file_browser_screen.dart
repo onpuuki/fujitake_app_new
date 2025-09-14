@@ -19,12 +19,9 @@ import 'dart:convert';
 import 'package:crypto/crypto.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:video_thumbnail/video_thumbnail.dart';
-import 'package:path/path.dart' as p;
 import 'package:fujitake_app_new/services/cache_path_service.dart';
 import 'package:image/image.dart' as img;
-
 import 'package:fujitake_app_new/utils/image_utils.dart';
-
 
 // ネイティブから受け取るファイル情報を表すクラス
 class SmbNativeFile {

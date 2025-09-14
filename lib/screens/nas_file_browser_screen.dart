@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 import 'dart:typed_data';
@@ -13,6 +14,14 @@ import '../models/cache_job_model.dart';
 import '../services/cache_downloader_service.dart';
 import '../services/global_log.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:io';
+import 'dart:convert';
+import 'package:crypto/crypto.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:video_thumbnail/video_thumbnail.dart';
+import 'package:fujitake_app_new/services/cache_path_service.dart';
+import 'package:image/image.dart' as img;
+import 'package:fujitake_app_new/utils/image_utils.dart';
 
 // ネイティブから受け取るファイル情報を表すクラス
 class SmbNativeFile {
@@ -78,6 +87,7 @@ class _NasFileBrowserScreenState extends State<NasFileBrowserScreen> {
   static const _smbChannel = MethodChannel('com.example.fujitake_app_new/smb');
   static const String _sortOptionKey = 'nas_sort_option';
   final CacheDownloaderService _cacheDownloaderService = CacheDownloaderService.instance;
+  final CachePathService _cachePathService = CachePathService.instance;
   
   SortOptionValue _sortOptionValue = SortOptionValue.dateDesc;
   List<SmbNativeFile> _files = [];
@@ -560,12 +570,86 @@ class _NasFileBrowserScreenState extends State<NasFileBrowserScreen> {
     return const CircularProgressIndicator(); // 初期表示
   }
   
+  bool _isImageFile(String fileName) {
+    final ext = p.extension(fileName).toLowerCase();
+    return ext == '.jpg' || ext == '.jpeg' || ext == '.png' || ext == '.gif' || ext == '.bmp' || ext == '.webp';
+  }
+
+
   Future<void> _getThumbnailData(SmbNativeFile file) async {
     final cacheKey = p.join(widget.server.shareName!, _currentPath, file.name);
     if (_thumbnailCache.containsKey(cacheKey)) {
       return;
     }
 
+    // ディスクキャッシュのパスを生成
+    final cacheDir = await getTemporaryDirectory();
+    final hash = sha1.convert(utf8.encode(cacheKey)).toString();
+    final cacheFile = File('${cacheDir.path}/thumbnail_$hash.jpg');
+
+    // ディスクキャッシュが存在すればそれを読み込む
+    if (await cacheFile.exists()) {
+      final bytes = await cacheFile.readAsBytes();
+      if (mounted) {
+        setState(() {
+          _thumbnailCache[cacheKey] = bytes;
+        });
+      }
+      return;
+    }
+
+    // フォルダキャッシュ（ファイル本体）の存在を確認
+    final localPath = await _cachePathService.getLocalPath(
+      widget.server.id,
+      file.fullPath,
+    );
+
+    if (localPath != null && await File(localPath).exists()) {
+      // ローカルファイルからサムネイルを生成
+      try {
+        Uint8List? thumbnail;
+        if (_isVideoFile(file.name)) {
+          thumbnail = await VideoThumbnail.thumbnailData(
+            video: localPath,
+            imageFormat: ImageFormat.JPEG,
+            maxWidth: 128,
+            quality: 25,
+          );
+        } else if (_isImageFile(file.name)) {
+          final imageBytes = await File(localPath).readAsBytes();
+          final image = await decodeImageInBackground(imageBytes);
+          if (image != null) {
+            final resizedImage = img.copyResize(image, width: 128);
+            thumbnail = Uint8List.fromList(img.encodeJpg(resizedImage, quality: 25));
+          }
+
+Future<img.Image?> _decodeImage(Uint8List bytes) async {
+  return await compute(img.decodeImage, bytes);
+}
+
+        }
+
+        if (thumbnail != null) {
+          await cacheFile.writeAsBytes(thumbnail);
+        }
+
+        if (mounted) {
+          setState(() {
+            _thumbnailCache[cacheKey] = thumbnail;
+          });
+        }
+      } catch (e) {
+        GlobalLog.add('ローカルからのサムネイル生成に失敗しました: $e');
+        if (mounted) {
+          setState(() {
+            _thumbnailCache[cacheKey] = null;
+          });
+        }
+      }
+      return;
+    }
+
+    // ネットワークからサムネイルを取得
     try {
       final Uint8List? thumbnail = await _smbChannel.invokeMethod('getThumbnail', {
         'host': widget.server.host,
@@ -582,6 +666,10 @@ class _NasFileBrowserScreenState extends State<NasFileBrowserScreen> {
         },
       });
 
+      if (thumbnail != null) {
+        await cacheFile.writeAsBytes(thumbnail);
+      }
+
       if (mounted) {
         setState(() {
           _thumbnailCache[cacheKey] = thumbnail;
@@ -590,7 +678,7 @@ class _NasFileBrowserScreenState extends State<NasFileBrowserScreen> {
     } on PlatformException catch (e) {
       if (mounted) {
         setState(() {
-          _thumbnailCache[cacheKey] = null; // エラーがあった場合はnullをセット
+          _thumbnailCache[cacheKey] = null;
         });
       }
       debugPrint("サムネイル取得エラー: ${e.message}");

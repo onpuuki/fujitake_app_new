@@ -17,6 +17,9 @@ import 'dart:io';
 import 'dart:convert';
 import 'package:crypto/crypto.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:video_thumbnail/video_thumbnail.dart';
+import 'package:path/path.dart' as p;
+
 
 
 // ネイティブから受け取るファイル情報を表すクラス
@@ -587,6 +590,42 @@ class _NasFileBrowserScreenState extends State<NasFileBrowserScreen> {
       return;
     }
 
+    // フォルダキャッシュ（ファイル本体）の存在を確認
+    final localPath = await _cacheDownloaderService.getLocalPath(
+      'smb://${widget.server.ipAddress}/${widget.server.shareName}/${file.fullPath}',
+    );
+
+    if (localPath != null && await File(localPath).exists()) {
+      // ローカルファイルからサムネイルを生成
+      try {
+        final Uint8List? thumbnail = await VideoThumbnail.thumbnailData(
+          video: localPath,
+          imageFormat: ImageFormat.JPEG,
+          maxWidth: 128,
+          quality: 25,
+        );
+
+        if (thumbnail != null) {
+          await cacheFile.writeAsBytes(thumbnail);
+        }
+
+        if (mounted) {
+          setState(() {
+            _thumbnailCache[cacheKey] = thumbnail;
+          });
+        }
+      } catch (e) {
+        GlobalLog.add('ローカルからのサムネイル生成に失敗しました: $e');
+        if (mounted) {
+          setState(() {
+            _thumbnailCache[cacheKey] = null;
+          });
+        }
+      }
+      return;
+    }
+
+    // ネットワークからサムネイルを取得
     try {
       final Uint8List? thumbnail = await _smbChannel.invokeMethod('getThumbnail', {
         'host': widget.server.host,
@@ -604,7 +643,6 @@ class _NasFileBrowserScreenState extends State<NasFileBrowserScreen> {
       });
 
       if (thumbnail != null) {
-        // 取得したサムネイルをディスクキャッシュに保存
         await cacheFile.writeAsBytes(thumbnail);
       }
 
@@ -616,7 +654,7 @@ class _NasFileBrowserScreenState extends State<NasFileBrowserScreen> {
     } on PlatformException catch (e) {
       if (mounted) {
         setState(() {
-          _thumbnailCache[cacheKey] = null; // エラーがあった場合はnullをセット
+          _thumbnailCache[cacheKey] = null;
         });
       }
       debugPrint("サムネイル取得エラー: ${e.message}");

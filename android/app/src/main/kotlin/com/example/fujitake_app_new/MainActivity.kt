@@ -23,6 +23,10 @@ import android.util.Rational
 import androidx.annotation.RequiresApi
 import androidx.core.app.NotificationCompat
 
+import androidx.work.Data
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkManager
+import androidx.work.WorkInfo
 import fi.iki.elonen.NanoHTTPD
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -144,77 +148,79 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun handleDownloadFile(call: MethodCall, result: MethodChannel.Result) {
-        lifecycleScope.launch {
-            val host = call.argument<String>("host")
-            val shareName = call.argument<String>("shareName")
-            val username = call.argument<String>("username")
-            val password = call.argument<String>("password")
-            val remotePath = call.argument<String>("remotePath")
-            val localPath = call.argument<String>("localPath")
-            val jobId = call.argument<Int>("jobId")
+        val host = call.argument<String>("host")
+        val shareName = call.argument<String>("shareName")
+        val remotePath = call.argument<String>("remotePath")
+        val localPathRoot = call.argument<String>("localPathRoot")
+        val username = call.argument<String>("username")
+        val password = call.argument<String>("password")
+        val domain = call.argument<String>("domain")
+        val jobId = call.argument<String>("jobId")
+        val recursive = call.argument<Boolean>("recursive") ?: false
 
-            if (host == null || shareName == null || username == null || password == null || remotePath == null || localPath == null || jobId == null) {
-                result.error("INVALID_ARGUMENTS", "Missing arguments for downloadFile", null)
-                return@launch
-            }
-
-            try {
-                val downloadedSize = downloadSmbFile(host, shareName, username, password, remotePath, localPath, jobId)
-                result.success(mapOf("downloadedSize" to downloadedSize))
-            } catch (e: Exception) {
-                result.error("DOWNLOAD_FAILED", e.message, e.stackTraceToString())
-            }
+        if (host == null || shareName == null || remotePath == null || localPathRoot == null || jobId == null) {
+            result.error("INVALID_ARGUMENTS", "Missing arguments for downloadFile", null)
+            return
         }
-    }
 
-    private suspend fun downloadSmbFile(
-        host: String,
-        shareName: String,
-        username: String,
-        password: String,
-        remotePath: String,
-        localPath: String,
-        jobId: Int
-    ): Long = withContext(Dispatchers.IO) {
-        val url = "smb://$host/$shareName/$remotePath"
-        val properties = Properties()
-        properties.setProperty("jcifs.smb.client.minVersion", "SMB202")
-        properties.setProperty("jcifs.smb.client.maxVersion", "SMB311")
-        try {
-            SingletonContext.init(properties)
-        } catch (e: CIFSException) {
-            // Context may already be initialized, which is fine.
-        }
-        val context = SingletonContext.getInstance()
-        val auth = NtlmPasswordAuthenticator(null, username, password)
-        val cifsContext = context.withCredentials(auth)
+        val data = Data.Builder()
+            .putString("host", host)
+            .putString("shareName", shareName)
+            .putString("remotePath", remotePath)
+            .putString("localPathRoot", localPathRoot)
+            .putString("username", username)
+            .putString("password", password)
+            .putString("domain", domain)
+            .putBoolean("recursive", recursive)
+            .build()
 
-        SmbFile(url, cifsContext).use { smbFile ->
-            val totalSize = smbFile.length()
-            File(localPath).outputStream().use { fileOutputStream ->
-                smbFile.inputStream.use { smbInputStream ->
-                    val buffer = ByteArray(8192)
-                    var bytesRead: Int
-                    var downloadedSize = 0L
-                    while (smbInputStream.read(buffer).also { bytesRead = it } != -1) {
-                        fileOutputStream.write(buffer, 0, bytesRead)
-                        downloadedSize += bytesRead
+        val downloadWorkRequest = OneTimeWorkRequestBuilder<DownloadWorker>()
+            .setInputData(data)
+            .addTag(jobId)
+            .build()
 
-                        // Notify Flutter of the progress
-                        val progressData = mapOf(
-                            "jobId" to jobId,
-                            "downloadedSize" to downloadedSize.toString()
-                        )
-                        Handler(Looper.getMainLooper()).post {
-                            MainActivity.methodChannel?.invokeMethod("downloadProgress", progressData)
-                        }
-                        // Add a small delay to allow the UI to update
-                        delay(50)
+        val workManager = WorkManager.getInstance(applicationContext)
+        workManager.enqueue(downloadWorkRequest)
+
+        workManager.getWorkInfosByTagLiveData(jobId).observe(this, object : Observer<List<WorkInfo>> {
+            override fun onChanged(workInfos: List<WorkInfo>) {
+                val workInfo = workInfos?.firstOrNull() ?: return
+
+                val log = workInfo.progress.getString("log")
+                if (log != null) {
+                    methodChannel?.invokeMethod("debugLog", log)
+                }
+
+                val progress = workInfo.progress.getLong("progress", -1L)
+                val total = workInfo.progress.getLong("total", -1L)
+
+                if (progress != -1L && total != -1L) {
+                    val progressData = mapOf(
+                        "jobId" to jobId,
+                        "progress" to progress,
+                        "total" to total
+                    )
+                    methodChannel?.invokeMethod("downloadProgress", progressData)
+                }
+
+                if (workInfo.state.isFinished) {
+                    val outputData = workInfo.outputData
+                    val error = outputData.getString("error")
+                    val finalStateData = mutableMapOf<String, Any?>(
+                        "jobId" to jobId,
+                        "state" to workInfo.state.name
+                    )
+                    if (error != null) {
+                        finalStateData["error"] = error
                     }
-                    return@withContext downloadedSize
+                    methodChannel?.invokeMethod("downloadState", finalStateData)
+                    // LiveDataの監視を解除
+                    workManager.getWorkInfosByTagLiveData(jobId).removeObserver(this)
                 }
             }
-        }
+        })
+
+        result.success(null)
     }
 
     // ... (Rest of the methods from the original MainActivity.kt, unchanged)

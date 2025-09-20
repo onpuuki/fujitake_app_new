@@ -9,6 +9,14 @@ import '../services/debug_log_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:image/image.dart' as img;
 
+
+import 'package:flutter/foundation.dart';
+
+// 画像のデコードを別Isolateで実行するためのトップレベル関数
+img.Image? _decodeImage(List<int> bytes) {
+  return img.decodeImage(Uint8List.fromList(bytes));
+}
+
 class ImageViewerScreen extends StatefulWidget {
   final List<String> imagePaths;
   final int initialIndex;
@@ -53,7 +61,7 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
     if (_isSplitMode) {
       for (final imagePath in widget.imagePaths) {
         final bytes = await _loadImageBytes(imagePath);
-        final image = img.decodeImage(bytes);
+        final image = await compute(_decodeImage, bytes.toList());
         if (image != null && image.width > image.height) {
           newImagePaths.add('$imagePath-left');
           newImagePaths.add('$imagePath-right');
@@ -158,16 +166,27 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
             ),
           );
         } else if (snapshot.hasData) {
-          if (_isSplitMode) {
-            final image = img.decodeImage(snapshot.data!);
-            if (image != null && image.width > image.height) {
-              final half = isLeft
-                  ? img.copyCrop(image, x: 0, y: 0, width: image.width ~/ 2, height: image.height)
-                  : img.copyCrop(image, x: image.width ~/ 2, y: 0, width: image.width ~/ 2, height: image.height);
-              return Center(child: Image.memory(Uint8List.fromList(img.encodeJpg(half))));
-            }
-          }
-          return Center(child: Image.memory(snapshot.data!));
+          return FutureBuilder<img.Image?>(
+            future: compute(_decodeImage, snapshot.data!.toList()),
+            builder: (context, imageSnapshot) {
+              if (imageSnapshot.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator());
+              } else if (imageSnapshot.hasError) {
+                return const Center(child: Text('画像のデコードに失敗しました。', style: TextStyle(color: Colors.white)));
+              } else if (imageSnapshot.hasData) {
+                final image = imageSnapshot.data!;
+                if (_isSplitMode && image.width > image.height) {
+                  final half = isLeft
+                      ? img.copyCrop(image, x: 0, y: 0, width: image.width ~/ 2, height: image.height)
+                      : img.copyCrop(image, x: image.width ~/ 2, y: 0, width: image.width ~/ 2, height: image.height);
+                  return Center(child: Image.memory(Uint8List.fromList(img.encodeJpg(half))));
+                }
+                return Center(child: Image.memory(snapshot.data!));
+              } else {
+                return const Center(child: Text('画像データがありません。', style: TextStyle(color: Colors.white)));
+              }
+            },
+          );
         } else {
           return const Center(
             child: Text(

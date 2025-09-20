@@ -29,6 +29,7 @@ class ImageViewerScreen extends StatefulWidget {
 class _ImageViewerScreenState extends State<ImageViewerScreen> {
   late PageController _pageController;
   late int _currentIndex;
+  final Map<String, Uint8List> _imageCache = {};
 
   @override
   void initState() {
@@ -38,9 +39,15 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
   }
 
   Future<Uint8List> _loadImageBytes(String imagePath) async {
+    if (_imageCache.containsKey(imagePath)) {
+      return _imageCache[imagePath]!;
+    }
+
     if (widget.isLocal) {
       final localFile = File(imagePath);
-      return await localFile.readAsBytes();
+      final bytes = await localFile.readAsBytes();
+      _imageCache[imagePath] = bytes;
+      return bytes;
     }
 
     // 1. キャッシュファイルの存在を確認
@@ -54,7 +61,9 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
     if (fileExists) {
       // 3. キャッシュが存在する場合
       print("キャッシュから画像を表示します: $localPath");
-      return await localFile.readAsBytes();
+      final bytes = await localFile.readAsBytes();
+      _imageCache[imagePath] = bytes;
+      return bytes;
     } else {
       // 4. キャッシュが存在しない場合
       print("リモートから画像を読み込みます: $imagePath");
@@ -74,6 +83,7 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
         await localFile.writeAsBytes(imageBytes);
         print("画像をキャッシュに保存しました: $localPath");
 
+        _imageCache[imagePath] = imageBytes;
         return imageBytes;
       } on PlatformException catch (e) {
         throw Exception('Failed to load image bytes: ${e.message}');
@@ -88,7 +98,7 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
         title: Text(p.basename(widget.imagePaths[_currentIndex])),
         actions: [
           IconButton(
-            icon: const Icon(Icons.arrow_back),
+            icon: const Icon(Icons.arrow_back_ios_new),
             onPressed: () {
               // TODO: Implement back action
             },
@@ -132,8 +142,13 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
                 });
               },
               itemBuilder: (context, index) {
+                final imagePath = widget.imagePaths[index];
+                if (_imageCache.containsKey(imagePath)) {
+                  return Center(child: Image.memory(_imageCache[imagePath]!));
+                }
+
                 return FutureBuilder<Uint8List>(
-                  future: _loadImageBytes(widget.imagePaths[index]),
+                  future: _loadImageBytes(imagePath),
                   builder: (context, snapshot) {
                     if (snapshot.connectionState == ConnectionState.waiting) {
                       return const Center(child: CircularProgressIndicator());

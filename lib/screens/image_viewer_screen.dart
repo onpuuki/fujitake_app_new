@@ -7,6 +7,7 @@ import 'dart:io';
 import '../services/cache_path_service.dart';
 import '../services/debug_log_service.dart';
 
+import 'package:archive/archive.dart';
 class ImageViewerScreen extends StatefulWidget {
   final NasServer? server;
   final String? imagePath;
@@ -34,46 +35,40 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
 
   Future<Uint8List> _loadImageBytes() async {
     if (widget.localPath != null) {
-      // ローカルファイルパスが指定されている場合
       final localFile = File(widget.localPath!);
       return await localFile.readAsBytes();
     }
 
-    // 1. キャッシュファイルの存在を確認
-    final localPath = await CachePathService.instance.getLocalPath(widget.server!.id, widget.imagePath!);
-    final localFile = File(localPath);
-    DebugLogService().addLog('[_loadImageBytes] Checking for cache at: "$localPath"');
+    // 1. キャッシュZIPファイルのパスを取得
+    final remoteDir = p.dirname(widget.imagePath!);
+    final localZipPath = await CachePathService.instance.getLocalPath(widget.server!.id, remoteDir);
+    final localZipFile = File(localZipPath);
+    DebugLogService().addLog('[_loadImageBytes] Checking for cache ZIP at: "$localZipPath"');
 
-    final bool fileExists = await localFile.exists();
-    DebugLogService().addLog('[_loadImageBytes] Cache file exists: $fileExists');
+    final bool zipExists = await localZipFile.exists();
+    DebugLogService().addLog('[_loadImageBytes] Cache ZIP file exists: $zipExists');
 
-    if (fileExists) {
-      // 3. キャッシュが存在する場合
-      print("キャッシュから画像を表示します: $localPath");
-      return await localFile.readAsBytes();
-    } else {
-      // 4. キャッシュが存在しない場合
-      print("リモートから画像を読み込みます: ${widget.imagePath}");
-      const MethodChannel smbChannel = MethodChannel('com.example.fujitake_app_new/smb');
+    if (zipExists) {
+      // 2. ZIPファイルから目的の画像を読み込む
       try {
-        final Uint8List imageBytes = await smbChannel.invokeMethod('readFile', {
-          'host': widget.server!.host,
-          'shareName': widget.server!.shareName,
-          'username': widget.server!.username,
-          'password': widget.server!.password,
-          'path': widget.imagePath,
-          'domain': widget.server!.domain,
-        });
-
-        // 取得した画像をキャッシュに保存
-        await localFile.parent.create(recursive: true);
-        await localFile.writeAsBytes(imageBytes);
-        print("画像をキャッシュに保存しました: $localPath");
-
-        return imageBytes;
-      } on PlatformException catch (e) {
-        throw Exception('Failed to load image bytes: ${e.message}');
+        final bytes = await localZipFile.readAsBytes();
+        final archive = ZipDecoder().decodeBytes(bytes);
+        final imageName = p.basename(widget.imagePath!);
+        
+        final file = archive.findFile(imageName);
+        if (file != null) {
+          DebugLogService().addLog('[_loadImageBytes] Found ${file.name} in ZIP. Decompressing...');
+          return file.content as Uint8List;
+        } else {
+          throw Exception('Image "$imageName" not found in the ZIP archive.');
+        }
+      } catch (e) {
+        throw Exception('Failed to read or decode ZIP file: $e');
       }
+    } else {
+      // 3. キャッシュが存在しない場合
+      DebugLogService().addLog('[_loadImageBytes] Cache ZIP not found. Image cannot be displayed.');
+      throw Exception('Cache file not found. Please download the folder first.');
     }
   }
 

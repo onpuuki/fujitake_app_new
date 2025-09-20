@@ -17,6 +17,8 @@ import java.io.File
 import java.io.FileOutputStream
 import java.security.MessageDigest
 import java.util.Properties
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
 
 class DownloadWorker(appContext: Context, workerParams: WorkerParameters) : CoroutineWorker(appContext, workerParams) {
 
@@ -46,45 +48,57 @@ class DownloadWorker(appContext: Context, workerParams: WorkerParameters) : Coro
             val filesToDownload = listFilesRecursively(startSmbFile, recursive)
             sendDebugLog("Found ${filesToDownload.size} files to download.")
 
+            val hashedFileName = sha256(remotePath) + ".zip"
+            val localZipFile = File(localPathRoot, hashedFileName)
+            localZipFile.parentFile?.mkdirs()
+
+            sendDebugLog("Creating ZIP file at: ${localZipFile.path}")
+
             var totalSize = 0L
+            filesToDownload.forEach { totalSize += it.length() }
             var downloadedSize = 0L
+            
+            setProgress(workDataOf("progress" to 0L, "total" to totalSize))
 
-            // Initial progress update with 0 total size
-            setProgress(workDataOf("progress" to 0L, "total" to 0L))
+            try {
+                ZipOutputStream(FileOutputStream(localZipFile)).use { zipOut ->
+                    for (file in filesToDownload) {
+                        try {
+                            val relativePath = file.path.substringAfter("smb://$host/$shareName/$safeRemotePath")
+                            val entry = ZipEntry(relativePath)
+                            zipOut.putNextEntry(entry)
 
-            for (file in filesToDownload) {
-                try {
-                    val fileSize = file.length()
-                    totalSize += fileSize
-                    sendDebugLog("File: ${file.name}, Size: $fileSize, New Total Size: $totalSize")
+                            sendDebugLog("Adding to ZIP: ${file.name}")
 
-                    val relativePath = file.path.substringAfter("smb://$host/$shareName/")
-                    val hashedFileName = sha256(relativePath) + ".jpg"
-                    val localFile = File(localPathRoot, hashedFileName)
-                    localFile.parentFile?.mkdirs()
-
-                    sendDebugLog("Downloading ${file.path} to ${localFile.path}")
-                    try {
-                        val bitmap = BitmapFactory.decodeStream(file.inputStream)
-                        FileOutputStream(localFile).use { out ->
-                            bitmap.compress(Bitmap.CompressFormat.JPEG, 80, out)
+                            file.inputStream.use { inputStream ->
+                                val buffer = ByteArray(8192)
+                                var bytesRead: Int
+                                while (inputStream.read(buffer).also { bytesRead = it } != -1) {
+                                    zipOut.write(buffer, 0, bytesRead)
+                                    downloadedSize += bytesRead
+                                    setProgress(workDataOf("progress" to downloadedSize, "total" to totalSize))
+                                }
+                            }
+                            zipOut.closeEntry()
+                            sendDebugLog("Finished adding: ${file.name}")
+                        } catch (t: Throwable) {
+                            sendDebugLog("Error adding file ${file.name} to ZIP: ${t.message}")
                         }
-                        downloadedSize += localFile.length()
-                        setProgress(workDataOf("progress" to downloadedSize, "total" to totalSize))
-                    } catch (e: Exception) {
-                        sendDebugLog("Failed to decode or compress image: ${e.message}")
                     }
-                    sendDebugLog("Finished downloading ${file.path}")
-                } catch (e: Exception) {
-                    sendDebugLog("Error processing file ${file.name}: ${e.message}")
                 }
+                sendDebugLog("ZIP file creation finished.")
+            } catch (t: Throwable) {
+                sendDebugLog("Error creating ZIP file: ${t.message}")
+                localZipFile.delete() // Delete partial ZIP file on error
+                return Result.failure(workDataOf("error" to t.toString()))
             }
+
 
             sendDebugLog("Download finished. Total downloaded: $downloadedSize / $totalSize")
             return Result.success()
-        } catch (e: Exception) {
-            sendDebugLog("DownloadWorker failed: ${e.toString()}")
-            return Result.failure(workDataOf("error" to e.toString()))
+        } catch (t: Throwable) {
+            sendDebugLog("DownloadWorker failed: ${t.toString()}")
+            return Result.failure(workDataOf("error" to t.toString()))
         }
     }
 

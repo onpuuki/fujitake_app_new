@@ -27,7 +27,7 @@ class CachePathService {
     // remotePathからハッシュを生成してファイル名とする
     final bytes = utf8.encode(remotePath);
     final digest = sha256.convert(bytes);
-    final safeFileName = '$digest.jpg';
+    final safeFileName = '$digest.zip';
     
     return p.join(serverDir.path, safeFileName);
   }

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -8,16 +9,12 @@ import '../services/cache_path_service.dart';
 import '../services/debug_log_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:image/image.dart' as img;
-
-
 import 'package:flutter/foundation.dart';
 
-// 画像のデコードを別Isolateで実行するためのトップレベル関数
 img.Image? _decodeImage(List<int> bytes) {
   return img.decodeImage(Uint8List.fromList(bytes));
 }
 
-// 画像の分割とエンコードを別Isolateで実行するためのトップレベル関数
 Uint8List _splitAndEncodeImage(Map<String, dynamic> params) {
   final image = params['image'] as img.Image;
   final isLeft = params['isLeft'] as bool;
@@ -31,7 +28,6 @@ class ImageViewerScreen extends StatefulWidget {
   final List<String> imagePaths;
   final int initialIndex;
   final bool isLocal;
-
   final NasServer? server;
 
   const ImageViewerScreen({
@@ -46,7 +42,6 @@ class ImageViewerScreen extends StatefulWidget {
   State<ImageViewerScreen> createState() => _ImageViewerScreenState();
 }
 
-
 class _ImageViewerScreenState extends State<ImageViewerScreen> {
   late PageController _pageController;
   late int _currentIndex;
@@ -54,10 +49,11 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
   bool _isSplitMode = false;
   late SharedPreferences _prefs;
   List<String> _displayImagePaths = [];
-  bool _isLoading = false; // ローディング状態を管理
+  bool _isLoading = false;
   final Map<String, bool> _isLandscapeMap = {};
   final Map<String, img.Image?> _decodedImageCache = {};
   final Map<String, Uint8List> _splitImageCache = {};
+  final Map<String, Future<void>> _imageProcessingFutures = {};
 
   @override
   void initState() {
@@ -65,16 +61,22 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
     _currentIndex = widget.initialIndex;
     _pageController = PageController(initialPage: _currentIndex);
     _loadPreferences().then((_) {
-      _updateDisplayImagePaths();
+      _updateDisplayImagePaths().then((_) {
+        if (mounted) {
+          _preloadImages(_currentIndex);
+        }
+      });
     });
   }
 
   Future<void> _updateDisplayImagePaths() async {
     final stopwatch = Stopwatch()..start();
     DebugLogService().addLog('[updateDisplayImagePaths] Start.');
-    setState(() {
-      _isLoading = true;
-    });
+    if (mounted) {
+      setState(() {
+        _isLoading = true;
+      });
+    }
 
     final newImagePaths = <String>[];
     if (_isSplitMode) {
@@ -88,13 +90,11 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
             bool isLandscape;
             if (_isLandscapeMap.containsKey(imagePath)) {
               isLandscape = _isLandscapeMap[imagePath]!;
-              DebugLogService().addLog('[_updateDisplayImagePaths] Use cached orientation for $imagePath: ${isLandscape ? "Landscape" : "Portrait"}');
             } else {
               final bytes = await _loadImageBytes(imagePath);
               final image = await compute(_decodeImage, bytes.toList());
               isLandscape = image != null && image.width > image.height;
               _isLandscapeMap[imagePath] = isLandscape;
-              DebugLogService().addLog('[_updateDisplayImagePaths] Fetched and cached orientation for $imagePath: ${isLandscape ? "Landscape" : "Portrait"}');
             }
 
             if (isLandscape) {
@@ -104,7 +104,6 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
               imagePathResults[i * 2] = imagePath;
             }
           } catch (e) {
-            DebugLogService().addLog('[updateDisplayImagePaths] Error processing $imagePath: $e');
             imagePathResults[i * 2] = imagePath;
           }
         }());
@@ -112,64 +111,66 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
 
       await Future.wait(futures);
       newImagePaths.addAll(imagePathResults.where((p) => p != null).cast<String>());
-
     } else {
       newImagePaths.addAll(widget.imagePaths);
     }
 
-    setState(() {
-      _displayImagePaths = newImagePaths;
-      _isLoading = false;
-    });
+    if (mounted) {
+      setState(() {
+        _displayImagePaths = newImagePaths;
+        _isLoading = false;
+      });
+    }
     stopwatch.stop();
     DebugLogService().addLog('[updateDisplayImagePaths] Finished in ${stopwatch.elapsedMilliseconds}ms.');
   }
 
   Future<void> _loadPreferences() async {
     _prefs = await SharedPreferences.getInstance();
-    setState(() {
-      _isSplitMode = _prefs.getBool('isSplitMode') ?? false;
-    });
+    if (mounted) {
+      setState(() {
+        _isSplitMode = _prefs.getBool('isSplitMode') ?? false;
+      });
+    }
   }
 
   Future<void> _toggleSplitMode(bool value) async {
+    if (!mounted) return;
     setState(() {
       _isSplitMode = value;
+      _isLoading = true;
+      _imageProcessingFutures.clear();
+      _splitImageCache.clear();
+      _decodedImageCache.clear();
+      _isLandscapeMap.clear();
     });
     await _prefs.setBool('isSplitMode', _isSplitMode);
-    _updateDisplayImagePaths();
+    await _updateDisplayImagePaths();
+    if (mounted) {
+      setState(() {
+        _isLoading = false;
+      });
+    }
   }
 
   Future<Uint8List> _loadImageBytes(String imagePath) async {
-    final stopwatch = Stopwatch()..start();
     final originalPath = imagePath.replaceAll('-left', '').replaceAll('-right', '');
-
     if (_imageCache.containsKey(originalPath)) {
-      stopwatch.stop();
-      DebugLogService().addLog('[_loadImageBytes] Load from cache: $originalPath in ${stopwatch.elapsedMilliseconds}ms');
       return _imageCache[originalPath]!;
     }
-
     if (widget.isLocal) {
       final localFile = File(originalPath);
       final bytes = await localFile.readAsBytes();
       _imageCache[originalPath] = bytes;
-      stopwatch.stop();
-      DebugLogService().addLog('[_loadImageBytes] Load from local: $originalPath in ${stopwatch.elapsedMilliseconds}ms');
       return bytes;
     }
-
     final localPath = await CachePathService.instance.getLocalPath(widget.server!.id, originalPath);
     final localFile = File(localPath);
-
     if (await localFile.exists()) {
       final bytes = await localFile.readAsBytes();
       _imageCache[originalPath] = bytes;
-      stopwatch.stop();
-      DebugLogService().addLog('[_loadImageBytes] Load from smb-cache: $originalPath in ${stopwatch.elapsedMilliseconds}ms');
       return bytes;
     } else {
-      DebugLogService().addLog('[_loadImageBytes] Load from remote: $originalPath');
       const MethodChannel smbChannel = MethodChannel('com.example.fujitake_app_new/smb');
       try {
         final Uint8List imageBytes = await smbChannel.invokeMethod('readFile', {
@@ -180,84 +181,74 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
           'path': originalPath,
           'domain': widget.server!.domain,
         });
-
         await localFile.parent.create(recursive: true);
         await localFile.writeAsBytes(imageBytes);
         _imageCache[originalPath] = imageBytes;
-        stopwatch.stop();
-        DebugLogService().addLog('[_loadImageBytes] Load from remote and cache: $originalPath in ${stopwatch.elapsedMilliseconds}ms');
         return imageBytes;
       } on PlatformException catch (e) {
-        stopwatch.stop();
-        DebugLogService().addLog('[_loadImageBytes] Failed to load from remote: ${e.message}');
         throw Exception('Failed to load image bytes: ${e.message}');
       }
     }
   }
 
-  Widget _buildImagePage(String imagePathWithSuffix) {
+  Future<Uint8List> _getImage(String imagePathWithSuffix) async {
     if (_splitImageCache.containsKey(imagePathWithSuffix)) {
-      return Center(child: Image.memory(_splitImageCache[imagePathWithSuffix]!));
+      return _splitImageCache[imagePathWithSuffix]!;
     }
-    
-    final imagePath = imagePathWithSuffix.replaceAll('-left', '').replaceAll('-right', '');
-    if (_imageCache.containsKey(imagePath)) {
-      return Center(child: Image.memory(_imageCache[imagePath]!));
+    if (!_isSplitMode) {
+      return _loadImageBytes(imagePathWithSuffix);
     }
-    
-    // Fallback for non-preloaded images
+    final future = _imageProcessingFutures[imagePathWithSuffix];
+    if (future != null) {
+      await future;
+      if (_splitImageCache.containsKey(imagePathWithSuffix)) {
+        return _splitImageCache[imagePathWithSuffix]!;
+      }
+    }
+    final completer = Completer<void>();
+    _imageProcessingFutures[imagePathWithSuffix] = completer.future;
+    try {
+      final imagePath = imagePathWithSuffix.replaceAll('-left', '').replaceAll('-right', '');
+      final bytes = await _loadImageBytes(imagePath);
+      final image = await compute(_decodeImage, bytes.toList());
+      if (image != null && image.width > image.height) {
+        final isLeft = imagePathWithSuffix.endsWith('-left');
+        final halfBytes = await compute(_splitAndEncodeImage, {'image': image, 'isLeft': isLeft});
+        _splitImageCache[imagePathWithSuffix] = halfBytes;
+        return halfBytes;
+      } else {
+        _splitImageCache[imagePathWithSuffix] = bytes;
+        return bytes;
+      }
+    } finally {
+      completer.complete();
+      _imageProcessingFutures.remove(imagePathWithSuffix);
+    }
+  }
+
+  Widget _buildImagePage(String imagePathWithSuffix) {
     return FutureBuilder<Uint8List>(
-      future: _loadImageBytes(imagePath),
+      future: _getImage(imagePathWithSuffix),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
         } else if (snapshot.hasError) {
-          return Center(child: Text('画像の読み込みに失敗しました: ${snapshot.error}', style: const TextStyle(color: Colors.white)));
+          return Center(child: Text('Error: ${snapshot.error}'));
         } else if (snapshot.hasData) {
           return Center(child: Image.memory(snapshot.data!));
         } else {
-          return const Center(child: Text('画像データがありません。', style: TextStyle(color: Colors.white)));
+          return const Center(child: Text('No image data.'));
         }
       },
     );
   }
 
-  Widget _buildImageView(img.Image image, bool isLeft, Uint8List originalBytes) {
-    // This function is now potentially redundant. Let's simplify _buildImagePage.
-    // Keeping it for now in case we need to revert or adjust.
-    // The new logic in _buildImagePage should handle everything.
-    return Container();
-  }
-
   Future<void> _preloadImages(int index) async {
     final pathsToPreload = <String>{};
-    if (index > 0) {
-      pathsToPreload.add(_displayImagePaths[index - 1]);
-    }
-    if (index < _displayImagePaths.length - 1) {
-      pathsToPreload.add(_displayImagePaths[index + 1]);
-    }
-
-    for (final imagePathWithSuffix in pathsToPreload) {
-      final imagePath = imagePathWithSuffix.replaceAll('-left', '').replaceAll('-right', '');
-      if (_decodedImageCache.containsKey(imagePath)) continue;
-
-      try {
-        final bytes = await _loadImageBytes(imagePath);
-        final image = await compute(_decodeImage, bytes.toList());
-        _decodedImageCache[imagePath] = image;
-        DebugLogService().addLog('[_preloadImages] Preloaded and decoded $imagePath');
-
-        if (image != null && image.width > image.height) {
-          final leftHalfBytes = await compute(_splitAndEncodeImage, {'image': image, 'isLeft': true});
-          _splitImageCache['$imagePath-left'] = leftHalfBytes;
-          final rightHalfBytes = await compute(_splitAndEncodeImage, {'image': image, 'isLeft': false});
-          _splitImageCache['$imagePath-right'] = rightHalfBytes;
-          DebugLogService().addLog('[_preloadImages] Pre-split and cached landscape image $imagePath');
-        }
-      } catch (e) {
-        DebugLogService().addLog('[_preloadImages] Error preloading $imagePath: $e');
-      }
+    if (index > 0) pathsToPreload.add(_displayImagePaths[index - 1]);
+    if (index < _displayImagePaths.length - 1) pathsToPreload.add(_displayImagePaths[index + 1]);
+    for (final path in pathsToPreload) {
+      _getImage(path);
     }
   }
 
@@ -269,9 +260,7 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.swap_horiz),
-            onPressed: () {
-              // TODO: Implement swap action
-            },
+            onPressed: () {},
           ),
           PopupMenuButton<bool>(
             onSelected: (value) {
@@ -297,21 +286,15 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
           ),
           IconButton(
             icon: const Icon(Icons.lock),
-            onPressed: () {
-              // TODO: Implement lock action 1
-            },
+            onPressed: () {},
           ),
           IconButton(
             icon: const Icon(Icons.lock),
-            onPressed: () {
-              // TODO: Implement lock action 2
-            },
+            onPressed: () {},
           ),
           IconButton(
             icon: const Icon(Icons.lock),
-            onPressed: () {
-              // TODO: Implement lock action 3
-            },
+            onPressed: () {},
           ),
         ],
       ),
@@ -325,9 +308,11 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
                     controller: _pageController,
                     itemCount: _displayImagePaths.length,
                     onPageChanged: (index) {
-                      setState(() {
-                        _currentIndex = index;
-                      });
+                      if (mounted) {
+                        setState(() {
+                          _currentIndex = index;
+                        });
+                      }
                       _preloadImages(index);
                     },
                     itemBuilder: (context, index) {
@@ -353,4 +338,3 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
     );
   }
 }
-

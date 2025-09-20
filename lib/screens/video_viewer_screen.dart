@@ -3,27 +3,27 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:video_player/video_player.dart';
+import 'package:path_provider/path_provider.dart';
 import '../services/cache_path_service.dart';
 import 'package:path/path.dart' as p;
 import '../models/nas_server_model.dart';
-
+import '../services/global_log.dart';
 
 class VideoViewerScreen extends StatefulWidget {
-  final NasServer server;
-  final String videoPath;
+  final NasServer? server;
+  final String? videoPath;
   final String? localPath;
 
   const VideoViewerScreen({
     super.key,
-    required this.server,
-    required this.videoPath,
+    this.server,
+    this.videoPath,
     this.localPath,
-  });
+  }) : assert(server != null && videoPath != null || localPath != null);
 
   @override
   State<VideoViewerScreen> createState() => _VideoViewerScreenState();
 }
-
 class _VideoViewerScreenState extends State<VideoViewerScreen> {
   VideoPlayerController? _controller;
   bool _isLoading = true;
@@ -31,7 +31,6 @@ class _VideoViewerScreenState extends State<VideoViewerScreen> {
   bool _showControls = true;
   bool _isInPipMode = false;
   Timer? _controlsTimer;
-  final List<String> _debugLogs = [];
 
   final MethodChannel _smbChannel = const MethodChannel('com.example.fujitake_app_new/smb');
 
@@ -48,7 +47,7 @@ class _VideoViewerScreenState extends State<VideoViewerScreen> {
         final String log = call.arguments as String;
         if (mounted) {
           setState(() {
-            _debugLogs.add(log);
+            GlobalLog.add(log);
           });
         }
         break;
@@ -77,27 +76,56 @@ class _VideoViewerScreenState extends State<VideoViewerScreen> {
 
   Future<void> _initializePlayer() async {
     try {
-      // 1. キャッシュファイルの存在を確認
-      final localPath = await CachePathService.instance.getLocalPath(widget.server.id, widget.videoPath);
-      final localFile = File(localPath);
-
       VideoPlayerController controller;
-      if (await localFile.exists()) {
-        // 2. キャッシュが存在する場合
-        print("キャッシュから動画を再生します: $localPath");
-        controller = VideoPlayerController.file(localFile);
-      } else {
-        // 3. キャッシュが存在しない場合 (ストリーミング)
-        final String? streamingUrl = await _getStreamingUrl();
-        if (streamingUrl != null && streamingUrl.isNotEmpty) {
-          print("ストリーミングで動画を再生します: $streamingUrl");
-          controller = VideoPlayerController.networkUrl(Uri.parse(streamingUrl));
+
+      if (widget.localPath != null) {
+        // --- Start of new robust logic ---
+        print("ローカルビデオの初期化を開始: ${widget.localPath}");
+        final sourceFile = File(widget.localPath!);
+        
+        if (!await sourceFile.exists()) {
+          throw Exception("元の動画ファイルが見つかりません: ${widget.localPath}");
+        }
+
+        final tempDir = await getTemporaryDirectory();
+        final fileName = p.basename(widget.localPath!);
+        final tempPath = p.join(tempDir.path, fileName);
+        final tempFile = File(tempPath);
+
+        print("一時ファイルのパス: $tempPath");
+
+        // Copy the file to the temporary directory with error handling
+        try {
+          await sourceFile.copy(tempPath);
+          print("ファイルのキャッシュへのコピーが完了しました。");
+        } catch (e) {
+          print("ファイルのコピーに失敗しました: $e");
+          throw Exception("動画の再生準備に失敗しました（ファイルコピーエラー）。");
+        }
+        
+        controller = VideoPlayerController.file(tempFile);
+        // --- End of new logic ---
+
+      } else { // Remote file logic (unchanged)
+        final localPath = await CachePathService.instance.getLocalPath(widget.server!.id, widget.videoPath!);
+        final localFile = File(localPath);
+
+        if (await localFile.exists()) {
+          print("キャッシュから動画を再生します: $localPath");
+          controller = VideoPlayerController.file(localFile);
         } else {
-          throw Exception("ストリーミングURLの取得に失敗しました。");
+          final String? streamingUrl = await _getStreamingUrl();
+          if (streamingUrl != null && streamingUrl.isNotEmpty) {
+            print("ストリーミングで動画を再生します: $streamingUrl");
+            controller = VideoPlayerController.networkUrl(Uri.parse(streamingUrl));
+          } else {
+            throw Exception("ストリーミングURLの取得に失敗しました。");
+          }
         }
       }
 
       await controller.initialize();
+      print("VideoPlayerControllerの初期化が完了。");
       await controller.play();
       if (mounted) {
         setState(() {
@@ -106,9 +134,14 @@ class _VideoViewerScreenState extends State<VideoViewerScreen> {
         });
       }
     } catch (e, s) {
+      print("動画の初期化中にエラーが発生: $e\n$s");
       if (mounted) {
         setState(() {
-          _error = '動画の読み込みに失敗しました: $e\n$s';
+          if (e is PlatformException) {
+            _error = '動画の読み込みに失敗しました (ネイティブエラー): ${e.message}\n${e.stacktrace}';
+          } else {
+            _error = '動画の読み込みに失敗しました: $e\n$s';
+          }
           _isLoading = false;
         });
       }
@@ -123,23 +156,25 @@ class _VideoViewerScreenState extends State<VideoViewerScreen> {
       // 現在の実装ではネットワークURLを期待しているため、一旦smbからのストリーミングに倒します。
     }
 
-    final smbUrl = 'smb://${widget.server.host}${widget.server.shareName != null ? '/${widget.server.shareName}' : ''}/${widget.videoPath}';
+    final smbUrl = 'smb://${widget.server!.host}${widget.server!.shareName != null ? '/${widget.server!.shareName}' : ''}/${widget.videoPath}';
     return _smbChannel.invokeMethod<String>('startStreaming', {
       'smbUrl': smbUrl,
-      'host': widget.server.host,
-      'shareName': widget.server.shareName,
-      'username': widget.server.username,
-      'password': widget.server.password,
+      'host': widget.server!.host,
+      'shareName': widget.server!.shareName,
+      'username': widget.server!.username,
+      'password': widget.server!.password,
       'path': widget.videoPath,
-      'fileName': p.basename(widget.videoPath),
-      'domain': widget.server.domain,
+      'fileName': p.basename(widget.videoPath!),
+      'domain': widget.server!.domain,
     });
   }
 
   @override
   void dispose() {
     _controlsTimer?.cancel();
-    _smbChannel.invokeMethod('stopStreaming', {'fileName': p.basename(widget.videoPath)});
+    if (widget.videoPath != null) {
+      _smbChannel.invokeMethod('stopStreaming', {'fileName': p.basename(widget.videoPath!)});
+    }
     _controller?.dispose();
     SystemChrome.setPreferredOrientations([
       DeviceOrientation.portraitUp,
@@ -176,7 +211,7 @@ class _VideoViewerScreenState extends State<VideoViewerScreen> {
     return Scaffold(
       appBar: _isInPipMode || (MediaQuery.of(context).orientation == Orientation.landscape && !_showControls)
           ? null
-          : AppBar(title: Text(p.basename(widget.videoPath))),
+          : AppBar(title: Text(p.basename(widget.localPath ?? widget.videoPath!))),
       backgroundColor: Colors.black,
       body: SafeArea(
         child: _isLoading
@@ -202,7 +237,7 @@ class _VideoViewerScreenState extends State<VideoViewerScreen> {
                             padding: const EdgeInsets.all(8.0),
                             color: Colors.black.withOpacity(0.5),
                             child: Text(
-                              _debugLogs.join('\n'),
+                              GlobalLog.logs.join('\n'),
                               style: const TextStyle(color: Colors.yellow, fontFamily: 'monospace'),
                             ),
                           ),
@@ -439,12 +474,12 @@ class _VideoViewerScreenState extends State<VideoViewerScreen> {
   }
 
   Future<void> _togglePip() async {
-    if (_controller != null && _controller!.value.isPlaying) {
+    if (_controller != null) {
       setState(() {
         _showControls = false;
       });
       try {
-        await _smbChannel.invokeMethod('enterPictureInPictureMode');
+        await _smbChannel.invokeMethod('enterPipMode');
       } on PlatformException catch (e) {
         print("Error entering PiP mode: ${e.message}");
         // エラーが発生した場合、状態を元に戻す

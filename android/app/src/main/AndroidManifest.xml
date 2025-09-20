@@ -3,7 +3,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <!-- ギャラリーからの画像選択とカメラ使用のための権限 -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/>
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"/>
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29" />
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
     <uses-permission android:name="android.permission.CAMERA"/>
     <uses-permission android:name="android.permission.INTERNET"/>
 
@@ -15,6 +16,7 @@
     <!-- フォアグラウンドサービスと通知の権限 -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
 
     <application
         android:label="ふじたけ"
@@ -76,7 +78,7 @@
             android:name=".PipControlReceiver"
             android:exported="true">
             <intent-filter>
-                <action android:name="pip_control" />
+                <action android:name="com.example.fujitake_app_new.PIP_CONTROL" />
             </intent-filter>
         </receiver>
 

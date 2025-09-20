@@ -3,6 +3,8 @@ import 'package:collection/collection.dart';
 import 'package:flutter/services.dart';
 import '../models/cache_job_model.dart';
 import '../models/nas_server_model.dart';
+import 'dart:io';
+import 'package:path_provider/path_provider.dart';
 import '../screens/nas_file_browser_screen.dart'; // SmbNativeFile を使うため
 import 'database_service.dart';
 import 'nas_server_service.dart';
@@ -24,6 +26,7 @@ class CacheDownloaderService {
     final incompleteJobs = await DatabaseService.instance.getIncompleteCacheJobs();
     _jobs.addAll(incompleteJobs);
     print('[CacheDownloaderService] Initialized with ${incompleteJobs.length} incomplete jobs.');
+    _smbChannel.setMethodCallHandler(_handleMethod);
   }
 
 
@@ -77,74 +80,38 @@ class CacheDownloaderService {
     final jobToProcess = _jobs.firstWhereOrNull((j) => j.status == 'pending');
     if (jobToProcess == null) {
       _isProcessing = false;
-      return; // 処理するジョブがない
+      return;
     }
 
     try {
       final dbService = DatabaseService.instance;
-      
-      // サーバー情報を取得
       final server = await _nasServerService.getServerById(jobToProcess.serverId);
       if (server == null) {
-        DebugLogService().addLog('[_processPendingJobs] FATAL: Server not found for id: ${jobToProcess.serverId}');
         throw Exception('Server not found for job: ${jobToProcess.id}');
-      } else {
-        DebugLogService().addLog('[_processPendingJobs] Server loaded: ${server.nickname}, Host: ${server.host}, Share: ${server.shareName}');
       }
 
-      // ステータスを 'calculating' に更新
-      _updateJobStatus(jobToProcess, 'calculating');
-      await dbService.updateCacheJob(jobToProcess);
-
-      // ファイルリストを取得して合計サイズを計算
-      final filesToCache = await _listAllFilesRecursive(server, jobToProcess.remotePath, jobToProcess.recursive);
-      final totalSize = filesToCache.fold<int>(0, (sum, file) => sum + file.size);
-
-      jobToProcess.totalSize = totalSize;
       _updateJobStatus(jobToProcess, 'downloading');
       await dbService.updateCacheJob(jobToProcess);
 
-      // 実際のダウンロード処理
       final cachePathService = CachePathService.instance;
-      int downloadCount = 0;
-      for (final file in filesToCache) {
-        final remoteFilePath = file.fullPath;
-        final localFilePath = await cachePathService.getLocalPath(server.id, remoteFilePath);
-        DebugLogService().addLog('[_processPendingJobs] Downloading: "$remoteFilePath" -> "$localFilePath"');
+      final baseDir = await getApplicationSupportDirectory();
+      final localPathRoot = p.join(baseDir.path, 'nas_cache', server.id);
 
-        try {
-          await _smbChannel.invokeMethod('downloadFile', {
-            'host': server.host,
-            'shareName': server.shareName,
-            'username': server.username,
-            'password': server.password,
-            'remotePath': remoteFilePath,
-            'localPath': localFilePath,
-          });
+      await _smbChannel.invokeMethod('downloadFile', {
+        'jobId': jobToProcess.id.toString(),
+        'host': server.host,
+        'shareName': jobToProcess.shareName,
+        'username': server.username,
+        'password': server.password,
+        'remotePath': jobToProcess.remotePath,
+        'localPathRoot': localPathRoot,
+        'recursive': jobToProcess.recursive,
+      });
 
-          jobToProcess.downloadedSize += file.size;
-          downloadCount++;
+      // The job is now running in the background.
+      // We can't mark it as completed here.
+      // The status will be updated by the native side.
 
-          // 10ファイルごと、または最後のファイルの場合に進捗をDBに保存
-          if (downloadCount % 10 == 0 || file == filesToCache.last) {
-            await dbService.updateCacheJob(jobToProcess);
-          }
-
-        } catch (e, stacktrace) {
-          final errorMsg = 'Failed to download file $remoteFilePath to $localFilePath. Error: $e';
-          print(errorMsg);
-          DebugLogService().addLog('[_processPendingJobs] $errorMsg');
-          DebugLogService().addLog('[_processPendingJobs] Stacktrace: $stacktrace');
-          _updateJobStatus(jobToProcess, 'failed');
-          await dbService.updateCacheJob(jobToProcess);
-          _isProcessing = false;
-          return;
-        }
-      }
-
-      _updateJobStatus(jobToProcess, 'completed');
-      await dbService.updateCacheJob(jobToProcess);
-      
     } catch (e) {
       print('Error processing cache job ${jobToProcess.id}: $e');
       _updateJobStatus(jobToProcess, 'failed');
@@ -154,59 +121,7 @@ class CacheDownloaderService {
     }
   }
 
-  Future<List<SmbNativeFile>> _listAllFilesRecursive(NasServer server, String path, bool recursive) async {
-    DebugLogService().addLog('[_listAllFilesRecursive] Starting recursive list for path: "$path"');
-    
-    if (!recursive) {
-        DebugLogService().addLog('[_listAllFilesRecursive] Non-recursive call. Listing files only in the root directory.');
-        // 非再帰の場合は、これまで通りlistFilesを呼び出すか、
-        // またはネイティブ側に新しいメソッドを作る必要があります。
-        // ここでは既存のlistFilesを使い、1階層のみ取得します。
-        final List<dynamic> rawFiles = await _smbChannel.invokeMethod('listFiles', {
-          'host': server.host,
-          'shareName': server.shareName,
-          'username': server.username,
-          'password': server.password,
-          'path': path,
-        });
-        return rawFiles.map((file) => SmbNativeFile.fromMap(file, path)).where((f) => !f.isDirectory).toList();
-    }
 
-    try {
-      final List<dynamic> rawFiles = await _smbChannel.invokeMethod('listAllFilesRecursive', {
-        'host': server.host,
-        'shareName': server.shareName,
-        'username': server.username,
-        'password': server.password,
-        'directoryPath': path,
-      });
-
-      DebugLogService().addLog('[_listAllFilesRecursive] Native method returned ${rawFiles.length} files.');
-
-      final files = rawFiles.map((file) {
-          // ネイティブから返される'path'は既に親ディレクトリを含んでいるはず
-          final String fullPath = file['path'];
-          final String parentPath = p.dirname(fullPath);
-          return SmbNativeFile.fromMap(file, parentPath);
-      }).toList();
-
-      return files;
-    } catch (e, stacktrace) {
-      final errorMessage = '[_listAllFilesRecursive] ERROR calling native listAllFilesRecursive for "$path"';
-      DebugLogService().addLog(errorMessage);
-
-      if (e is PlatformException) {
-        DebugLogService().addLog('   PlatformException Message: ${e.message}');
-        DebugLogService().addLog('   PlatformException Details (Native Stacktrace): ${e.details}');
-      } else {
-        DebugLogService().addLog('   General Exception: ${e.toString()}');
-      }
-      
-      DebugLogService().addLog('   Dart Stacktrace: ${stacktrace.toString()}');
-      print('$errorMessage: $e');
-      return []; // エラーが発生した場合は空のリストを返す
-    }
-  }
 
   void _updateJobStatus(CacheJob job, String newStatus) {
     final index = _jobs.indexWhere((j) => j.id == job.id);
@@ -219,5 +134,51 @@ class CacheDownloaderService {
       }
     }
   }
+
+  Future<dynamic> _handleMethod(MethodCall call) async {
+    switch (call.method) {
+      case 'debugLog':
+        final log = call.arguments as String;
+        DebugLogService().addLog(log);
+        break;
+      case 'downloadProgress':
+        final args = call.arguments as Map<Object?, Object?>;
+        final jobId = args['jobId'] as String;
+        final progress = args['progress'] as int;
+        final total = args['total'] as int;
+
+        final job = _jobs.firstWhereOrNull((j) => j.id.toString() == jobId);
+        if (job != null) {
+          job.downloadedSize = progress;
+          job.totalSize = total;
+          await DatabaseService.instance.updateCacheJob(job);
+          // UI update will be triggered by a separate stream/notifier if needed
+        }
+        break;
+      case 'downloadState':
+        final args = call.arguments as Map<Object?, Object?>;
+        final jobId = args['jobId'] as String;
+        final state = args['state'] as String;
+        final error = args['error'] as String?;
+
+        final job = _jobs.firstWhereOrNull((j) => j.id.toString() == jobId);
+        if (job != null) {
+          if (state == 'SUCCEEDED') {
+            _updateJobStatus(job, 'completed');
+          } else if (state == 'FAILED') {
+            _updateJobStatus(job, 'failed');
+            if (error != null) {
+              print('Download failed for job ${job.id}: $error');
+              DebugLogService().addLog('Download failed for job ${job.id}: $error');
+            }
+          }
+          await DatabaseService.instance.updateCacheJob(job);
+        }
+        break;
+      default:
+        throw MissingPluginException();
+    }
+  }
 }
+
 

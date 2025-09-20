@@ -9,86 +9,70 @@ import '../services/debug_log_service.dart';
 
 class ImageViewerScreen extends StatefulWidget {
   final NasServer? server;
-  final List<String> imagePaths;
-  final int initialIndex;
-  final bool isLocal;
+  final String? imagePath;
+  final String? localPath;
 
   const ImageViewerScreen({
     super.key,
     this.server,
-    required this.imagePaths,
-    required this.initialIndex,
-    this.isLocal = false,
-  }) : assert(isLocal || server != null);
+    this.imagePath,
+    this.localPath,
+  }) : assert(server != null && imagePath != null || localPath != null);
 
   @override
   State<ImageViewerScreen> createState() => _ImageViewerScreenState();
 }
 
 class _ImageViewerScreenState extends State<ImageViewerScreen> {
-
-  List<String> _imagePaths = [];
-  int _currentIndex = 0;
-  bool _showUI = true;
-  PageController? _pageController;
-  final TransformationController _transformationController = TransformationController();
+  late Future<Uint8List> _imageBytesFuture;
 
   @override
   void initState() {
     super.initState();
-    _imagePaths = widget.imagePaths;
-    _currentIndex = widget.initialIndex;
-    _pageController = PageController(initialPage: _currentIndex);
+    _imageBytesFuture = _loadImageBytes();
   }
 
+  Future<Uint8List> _loadImageBytes() async {
+    if (widget.localPath != null) {
+      // ローカルファイルパスが指定されている場合
+      final localFile = File(widget.localPath!);
+      return await localFile.readAsBytes();
+    }
 
+    // 1. キャッシュファイルの存在を確認
+    final localPath = await CachePathService.instance.getLocalPath(widget.server!.id, widget.imagePath!);
+    final localFile = File(localPath);
+    DebugLogService().addLog('[_loadImageBytes] Checking for cache at: "$localPath"');
 
-  bool _isImageFile(String path) {
-    final extension = p.extension(path).toLowerCase();
-    return ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp'].contains(extension);
-  }
+    final bool fileExists = await localFile.exists();
+    DebugLogService().addLog('[_loadImageBytes] Cache file exists: $fileExists');
 
-  Future<Uint8List> _getImageBytes(String imagePath) async {
-    final log = DebugLogService();
-    log.addLog('[ImageViewerScreen] Getting image bytes for: $imagePath');
-
-    if (widget.isLocal) {
-      log.addLog('[ImageViewerScreen] Reading local file.');
-      final localFile = File(imagePath);
+    if (fileExists) {
+      // 3. キャッシュが存在する場合
+      print("キャッシュから画像を表示します: $localPath");
       return await localFile.readAsBytes();
     } else {
-      final localPath = await CachePathService.instance.getLocalPath(widget.server!.id, imagePath);
-      final localFile = File(localPath);
-      log.addLog('[ImageViewerScreen] Checking for cache at: "$localPath"');
+      // 4. キャッシュが存在しない場合
+      print("リモートから画像を読み込みます: ${widget.imagePath}");
+      const MethodChannel smbChannel = MethodChannel('com.example.fujitake_app_new/smb');
+      try {
+        final Uint8List imageBytes = await smbChannel.invokeMethod('readFile', {
+          'host': widget.server!.host,
+          'shareName': widget.server!.shareName,
+          'username': widget.server!.username,
+          'password': widget.server!.password,
+          'path': widget.imagePath,
+          'domain': widget.server!.domain,
+        });
 
-      final bool fileExists = await localFile.exists();
-      log.addLog('[ImageViewerScreen] Cache file exists: $fileExists');
+        // 取得した画像をキャッシュに保存
+        await localFile.parent.create(recursive: true);
+        await localFile.writeAsBytes(imageBytes);
+        print("画像をキャッシュに保存しました: $localPath");
 
-      if (fileExists) {
-        log.addLog('[ImageViewerScreen] Loading image from cache.');
-        return await localFile.readAsBytes();
-      } else {
-        log.addLog('[ImageViewerScreen] Loading image from remote.');
-        const MethodChannel smbChannel = MethodChannel('com.example.fujitake_app_new/smb');
-        try {
-          final Uint8List imageBytes = await smbChannel.invokeMethod('readFile', {
-            'host': widget.server!.host,
-            'shareName': widget.server!.shareName,
-            'username': widget.server!.username,
-            'password': widget.server!.password,
-            'path': imagePath,
-            'domain': widget.server!.domain,
-          });
-
-          await localFile.parent.create(recursive: true);
-          await localFile.writeAsBytes(imageBytes);
-          log.addLog('[ImageViewerScreen] Image cached at: $localPath');
-
-          return imageBytes;
-        } on PlatformException catch (e) {
-          log.addLog('[ImageViewerScreen] Failed to load image bytes: ${e.message}');
-          throw Exception('Failed to load image bytes: ${e.message}');
-        }
+        return imageBytes;
+      } on PlatformException catch (e) {
+        throw Exception('Failed to load image bytes: ${e.message}');
       }
     }
   }
@@ -96,78 +80,36 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      appBar: AppBar(title: Text(p.basename(widget.localPath ?? widget.imagePath!))),
       backgroundColor: Colors.black,
-      body: GestureDetector(
-        onTap: () {
-          setState(() {
-            _showUI = !_showUI;
-          });
-        },
-        child: Stack(
-          children: [
-            PageView.builder(
-              controller: _pageController,
-              itemCount: _imagePaths.length,
-              onPageChanged: (index) {
-                setState(() {
-                  _currentIndex = index;
-                  _transformationController.value = Matrix4.identity();
-                });
-              },
-              itemBuilder: (context, index) {
-                return FutureBuilder<Uint8List>(
-                  future: _getImageBytes(_imagePaths[index]),
-                  builder: (context, snapshot) {
-                    if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
-                      return const Center(child: CircularProgressIndicator());
-                    } else if (snapshot.hasError) {
-                      return Center(
-                        child: Padding(
-                          padding: const EdgeInsets.all(16.0),
-                          child: Text(
-                            '画像の読み込みに失敗しました: ${snapshot.error}',
-                            style: const TextStyle(color: Colors.white),
-                            textAlign: TextAlign.center,
-                          ),
-                        ),
-                      );
-                    } else if (snapshot.hasData) {
-                      return InteractiveViewer(
-                        transformationController: _transformationController,
-                        minScale: 1.0,
-                        maxScale: 4.0,
-                        child: SizedBox.expand(
-                          child: Image.memory(
-                            snapshot.data!,
-                            fit: BoxFit.contain,
-                            gaplessPlayback: true,
-                          ),
-                        ),
-                      );
-                    } else {
-                      return const Center(
-                        child: Text(
-                          '画像データがありません。',
-                          style: TextStyle(color: Colors.white),
-                        ),
-                      );
-                    }
-                  },
-                );
-              },
-            ),
-            if (_showUI)
-              Positioned(
-                top: 0,
-                left: 0,
-                right: 0,
-                child: AppBar(
-                  title: Text(p.basename(_imagePaths[_currentIndex])),
-                  backgroundColor: Colors.black.withOpacity(0.5),
-                  elevation: 0,
+      body: Center(
+        child: FutureBuilder<Uint8List>(
+          future: _imageBytesFuture,
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Center(child: CircularProgressIndicator());
+            } else if (snapshot.hasError) {
+              return Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Text(
+                    '画像の読み込みに失敗しました: ${snapshot.error}',
+                    style: const TextStyle(color: Colors.white),
+                    textAlign: TextAlign.center,
+                  ),
                 ),
-              ),
-          ],
+              );
+            } else if (snapshot.hasData) {
+              return Center(child: Image.memory(snapshot.data!));
+            } else {
+              return const Center(
+                child: Text(
+                  '画像データがありません。',
+                  style: TextStyle(color: Colors.white),
+                ),
+              );
+            }
+          },
         ),
       ),
     );

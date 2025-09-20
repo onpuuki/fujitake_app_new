@@ -28,9 +28,6 @@ android {
         targetSdk = 34
         versionCode = 1
         versionName = "1.0"
-        ndk {
-    abiFilters.addAll(listOf("armeabi-v7a", "arm64-v8a"))
-}
     }
 
     buildTypes {
@@ -39,23 +36,14 @@ android {
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             signingConfig = signingConfigs.getByName("debug")
             isShrinkResources = true
-            
         }
     }
 
-
-    splits {
-        abi {
-            isEnable = true
-            reset()
-            
-            isUniversalApk = false
-        }
-    }
 
 }
 
 dependencies {
+    implementation("androidx.work:work-runtime-ktx:2.9.0")
     // Standard JCIFS-NG and Bouncy Castle provider
     implementation("eu.agno3.jcifs:jcifs-ng:2.1.10")
     implementation("org.bouncycastle:bcprov-jdk18on:1.78")

@@ -43,12 +43,24 @@ class SmbNativeFile {
   factory SmbNativeFile.fromMap(Map<dynamic, dynamic> map, String currentPath) {
     final name = map['name'] as String? ?? '';
     
+    // ネイティブから'path'が提供されていれば、それを fullPath として優先する
+    final String fullPath;
+    if (map.containsKey('path') && map['path'] != null) {
+      fullPath = map['path'] as String;
+    } else {
+      String normalizedCurrentPath = currentPath.endsWith('/') ? currentPath : '$currentPath/';
+      if (currentPath.isEmpty) {
+        normalizedCurrentPath = '';
+      }
+      fullPath = normalizedCurrentPath + name;
+    }
+
     return SmbNativeFile(
       name: name,
       isDirectory: map['isDirectory'] as bool? ?? false,
       size: map['size'] as int? ?? 0,
       lastModified: map['lastModified'] as int? ?? 0,
-      fullPath: p.join(currentPath, name),
+      fullPath: fullPath,
     );
   }
 }
@@ -185,20 +197,16 @@ class _NasFileBrowserScreenState extends State<NasFileBrowserScreen> {
       return;
     }
 
+    final remotePath = file.fullPath;
     final fileExtension = p.extension(file.name).toLowerCase();
     
     if (['.jpg', '.jpeg', '.png', '.gif', '.bmp'].contains(fileExtension)) {
-      final imageFiles = _files.where((f) => !f.isDirectory && _isImageFile(f.name)).toList();
-      final imagePaths = imageFiles.map((f) => f.fullPath).toList();
-      final initialIndex = imageFiles.indexOf(file);
-
       Navigator.push(
         context,
         MaterialPageRoute(
           builder: (context) => ImageViewerScreen(
             server: widget.server,
-            imagePaths: imagePaths,
-            initialIndex: initialIndex,
+            imagePath: remotePath,
           ),
         ),
       );
@@ -208,7 +216,7 @@ class _NasFileBrowserScreenState extends State<NasFileBrowserScreen> {
         MaterialPageRoute(
           builder: (context) => VideoViewerScreen(
             server: widget.server,
-            videoPath: file.fullPath,
+            videoPath: remotePath,
             localPath: null,
           ),
         ),

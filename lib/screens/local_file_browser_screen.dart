@@ -271,22 +271,12 @@ class _LocalFileBrowserScreenState extends State<LocalFileBrowserScreen> {
                             } else if (entity is File) {
                               String path = entity.path.toLowerCase();
                               if (path.endsWith('.jpg') || path.endsWith('.jpeg') || path.endsWith('.png') || path.endsWith('.gif')) {
-                                  final imageFiles = _files
-                                      .where((f) => f is File && (f.path.toLowerCase().endsWith('.jpg') || f.path.toLowerCase().endsWith('.jpeg') || f.path.toLowerCase().endsWith('.png') || f.path.toLowerCase().endsWith('.gif')))
-                                      .map((f) => f.path)
-                                      .toList();
-                                  final initialIndex = imageFiles.indexOf(entity.path);
-
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (context) => ImageViewerScreen(
-                                        imagePaths: imageFiles,
-                                        initialIndex: initialIndex,
-                                        isLocal: true,
-                                      ),
-                                    ),
-                                  );
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) => ImageViewerScreen(localPath: entity.path),
+                                  ),
+                                );
                               } else if (path.endsWith('.mp4') || path.endsWith('.mov') || path.endsWith('.avi') || path.endsWith('.mkv')) {
                                 Navigator.push(
                                   context,

@@ -259,7 +259,6 @@ class MainActivity : FlutterActivity() {
             return
         }
         val directoryPath = call.argument<String>("path") ?: ""
-        sendDebugLog("Listing files for path: \"$directoryPath\"")
         val username = call.argument<String>("username")
         val password = call.argument<String>("password")
         val domain = call.argument<String>("domain")
@@ -405,18 +404,24 @@ class MainActivity : FlutterActivity() {
     }
 
     private suspend fun listSmbFiles(host: String, shareName: String, directoryPath: String, username: String?, password: String?, domain: String?): List<Map<String, Any?>> {
-        sendDebugLog("listSmbFiles START: host=$host, shareName=$shareName, directoryPath=$directoryPath")
         return withContext(Dispatchers.IO) {
+            sendDebugLog("listSmbFiles START: host=$host, shareName=$shareName, directoryPath=$directoryPath")
+            val context = createCifsContext(domain, username, password)
+            
             try {
-                val context = createCifsContext(domain, username, password)
                 val shareUrl = "smb://$host/${shareName.removeSuffix("/")}/"
                 var targetDir = SmbFile(shareUrl, context)
                 sendDebugLog("Base SmbFile path: ${targetDir.path}")
 
                 val pathComponents = directoryPath.split('/').filter { it.isNotEmpty() }
+                
                 pathComponents.forEach { component ->
                     targetDir = SmbFile(targetDir, "$component/")
                     sendDebugLog("Incrementally built SmbFile path: ${targetDir.path}")
+                }
+
+                if (pathComponents.isNotEmpty() && !targetDir.path.endsWith("/")) {
+                    targetDir = SmbFile(targetDir.path + "/", context)
                 }
 
                 sendDebugLog("Final constructed SmbFile path for listFiles: ${targetDir.path}")
@@ -429,11 +434,12 @@ class MainActivity : FlutterActivity() {
                         "lastModified" to it.lastModified
                     )
                 } ?: emptyList()
+                
                 sendDebugLog("listFiles() SUCCEEDED. Found ${files.size} files in '${targetDir.path}'.")
                 files
             } catch (e: Exception) {
                 sendDebugLog("Exception caught in listSmbFiles for '$directoryPath': ${e.message}")
-                throw e
+                emptyList()
             }
         }
     }

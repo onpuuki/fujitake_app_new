@@ -1,39 +1,38 @@
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'dart:io';
+import 'dart:convert';
+import 'package:crypto/crypto.dart';
 
 class CachePathService {
   CachePathService._();
   static final CachePathService instance = CachePathService._();
 
   Future<String> _getBaseDir() async {
-    // アプリケーションのサポートディレクトリを取得
     final dir = await getApplicationSupportDirectory();
     final cacheBaseDir = Directory(p.join(dir.path, 'nas_cache'));
-    // ディレクトリが存在しない場合は作成
     if (!await cacheBaseDir.exists()) {
       await cacheBaseDir.create(recursive: true);
     }
     return cacheBaseDir.path;
   }
 
-  /// リモートパスに対応するローカルファイルパスを生成する
-  ///
-  /// [serverId] と [remotePath] を組み合わせて、一意のローカルパスを生成します。
-  /// ファイル名はURLエンコードのように安全な文字列に変換します。
   Future<String> getLocalPath(String serverId, String remotePath) async {
     final baseDir = await _getBaseDir();
-    // serverId を使ってサーバーごとのディレクトリを作成
     final serverDir = Directory(p.join(baseDir, serverId));
     if (!await serverDir.exists()) {
       await serverDir.create();
     }
-    // remotePath を安全なファイル名に変換して結合
-    final safeRemotePath = Uri.encodeComponent(remotePath.replaceAll('/', '_'));
-    return p.join(serverDir.path, safeRemotePath);
+    
+    // remotePathからハッシュを生成してファイル名とする
+    final bytes = utf8.encode(remotePath);
+    final digest = sha256.convert(bytes);
+    final extension = p.extension(remotePath);
+    final safeFileName = '$digest$extension';
+    
+    return p.join(serverDir.path, safeFileName);
   }
 
-  /// 指定したジョブIDに関連するキャッシュファイルをすべて削除する
   Future<void> deleteCacheForJob(String serverId, String remotePath) async {
     final localPath = await getLocalPath(serverId, remotePath);
     final file = File(localPath);

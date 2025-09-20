@@ -98,33 +98,33 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
         title: Text(p.basename(widget.imagePaths[_currentIndex])),
         actions: [
           IconButton(
-            icon: const Icon(Icons.dehaze),
+            icon: const Icon(Icons.swap_horiz),
             onPressed: () {
-              // TODO: Implement back action
+              // TODO: Implement swap action
             },
           ),
           IconButton(
             icon: const Icon(Icons.menu),
             onPressed: () {
-              // TODO: Implement refresh action
+              // TODO: Implement side navigation action
             },
           ),
           IconButton(
-            icon: const Icon(Icons.fullscreen),
+            icon: const Icon(Icons.lock),
             onPressed: () {
-              // TODO: Implement fullscreen action
+              // TODO: Implement lock action 1
             },
           ),
           IconButton(
-            icon: const Icon(Icons.settings),
+            icon: const Icon(Icons.lock),
             onPressed: () {
-              // TODO: Implement settings action
+              // TODO: Implement lock action 2
             },
           ),
           IconButton(
-            icon: const Icon(Icons.more_vert),
+            icon: const Icon(Icons.lock),
             onPressed: () {
-              // TODO: Implement more action
+              // TODO: Implement lock action 3
             },
           ),
         ],

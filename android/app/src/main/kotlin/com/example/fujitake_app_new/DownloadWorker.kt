@@ -130,6 +130,7 @@ class DownloadWorker(appContext: Context, workerParams: WorkerParameters) : Coro
         props["jcifs.smb.client.smb2.signingEnforced"] = "false"
         props["jcifs.smb.client.useSMB21"] = "true"
         props["jcifs.smb.client.dfs.disabled"] = "true"
+        props["jcifs.encoding"] = "UTF-8"
         val config = PropertyConfiguration(props)
         val baseContext = BaseContext(config)
         return baseContext.withCredentials(NtlmPasswordAuthenticator(domain, username, password))

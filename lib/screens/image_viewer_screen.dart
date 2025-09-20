@@ -232,6 +232,15 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
     }
   }
 
+  Uint8List? _getImageFromCacheSync(String imagePath) {
+    if (imagePath.endsWith('-left') || imagePath.endsWith('-right')) {
+      return _splitImageCache[imagePath];
+    } else {
+      final originalPath = imagePath.replaceAll('-left', '').replaceAll('-right', '');
+      return _imageCache[originalPath];
+    }
+  }
+
   Future<Uint8List> _getImage(String imagePathWithSuffix) async {
     final stopwatch = Stopwatch()..start();
     try {
@@ -254,18 +263,24 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
   }
 
   Widget _buildImagePage(String imagePathWithSuffix) {
+    final cachedImage = _getImageFromCacheSync(imagePathWithSuffix);
+
     return FutureBuilder<Uint8List>(
       future: _getImage(imagePathWithSuffix),
+      initialData: cachedImage,
       builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
+        Widget content;
+        if (snapshot.hasData) {
+          content = Center(child: Image.memory(snapshot.data!, gaplessPlayback: true));
         } else if (snapshot.hasError) {
-          return Center(child: Text('Error: ${snapshot.error}'));
-        } else if (snapshot.hasData) {
-          return Center(child: Image.memory(snapshot.data!));
+          content = Center(child: Text('Error: ${snapshot.error}'));
         } else {
-          return const Center(child: Text('No image data.'));
+          content = const Center(child: CircularProgressIndicator());
         }
+        return AnimatedSwitcher(
+          duration: const Duration(milliseconds: 150),
+          child: content,
+        );
       },
     );
   }

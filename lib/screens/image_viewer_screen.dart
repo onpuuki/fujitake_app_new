@@ -76,19 +76,22 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
 
     setState(() {
       _isLoading = true;
-      // For split mode, start with a portrait-only list for fast initial display.
-      // The actual orientation check and list update will happen in the background.
-      _displayImagePaths = List.from(widget.imagePaths);
     });
 
+    List<String> newImagePaths;
     if (_isSplitMode) {
-      _processImagesInBackgroundAndUpdateUI();
+      newImagePaths = await _processImagesInBackground();
+    } else {
+      newImagePaths = List.from(widget.imagePaths);
     }
 
-    setState(() {
-      _isLoading = false;
-    });
-    DebugLogService().addLog('[updateDisplayImagePaths] Initial display paths set.');
+    if (mounted) {
+      setState(() {
+        _displayImagePaths = newImagePaths;
+        _isLoading = false;
+      });
+    }
+    DebugLogService().addLog('[updateDisplayImagePaths] Display paths updated.');
   }
 
   Future<void> _processImage(String imagePath) {
@@ -128,38 +131,22 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
     return completer.future;
   }
 
-  Future<void> _processImagesInBackgroundAndUpdateUI() async {
+  Future<List<String>> _processImagesInBackground() async {
     final newImagePaths = <String>[];
-    bool listChanged = false;
-
     for (final imagePath in widget.imagePaths) {
       await _processImage(imagePath);
-      if (!mounted) return;
+      if (!mounted) return [];
 
       final isLandscape = _isLandscapeMap[imagePath] ?? false;
       if (isLandscape) {
-        // Always display right page then left page for manga reading order.
         newImagePaths.add('$imagePath-right');
         newImagePaths.add('$imagePath-left');
-        listChanged = true;
       } else {
         newImagePaths.add(imagePath);
       }
     }
-
-    if (listChanged && mounted) {
-      // Preserve current reading position
-      final currentOriginalPath = _displayImagePaths[_currentIndex].replaceAll('-left', '').replaceAll('-right', '');
-      final newIndex = newImagePaths.indexWhere((p) => p.contains(currentOriginalPath));
-
-      setState(() {
-        _displayImagePaths = newImagePaths;
-        if (newIndex != -1) {
-          _pageController.jumpToPage(newIndex);
-        }
-      });
-      DebugLogService().addLog('[_processImagesInBackgroundAndUpdateUI] UI updated with landscape splits.');
-    }
+    DebugLogService().addLog('[_processImagesInBackground] Finished processing all images.');
+    return newImagePaths;
   }
 
   Future<void> _loadPreferences() async {

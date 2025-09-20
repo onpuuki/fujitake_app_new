@@ -138,13 +138,9 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
 
       final isLandscape = _isLandscapeMap[imagePath] ?? false;
       if (isLandscape) {
-        if (_isReverse) {
-          newImagePaths.add('$imagePath-left');
-          newImagePaths.add('$imagePath-right');
-        } else {
-          newImagePaths.add('$imagePath-right');
-          newImagePaths.add('$imagePath-left');
-        }
+        // Always display right page then left page for manga reading order.
+        newImagePaths.add('$imagePath-right');
+        newImagePaths.add('$imagePath-left');
         listChanged = true;
       } else {
         newImagePaths.add(imagePath);

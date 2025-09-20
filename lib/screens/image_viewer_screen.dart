@@ -26,16 +26,54 @@ class ImageViewerScreen extends StatefulWidget {
   State<ImageViewerScreen> createState() => _ImageViewerScreenState();
 }
 
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:image/image.dart' as img;
+
 class _ImageViewerScreenState extends State<ImageViewerScreen> {
   late PageController _pageController;
   late int _currentIndex;
   final Map<String, Uint8List> _imageCache = {};
+  bool _isSplitMode = false;
+  late SharedPreferences _prefs;
+
+  List<String> _displayImagePaths = [];
 
   @override
   void initState() {
     super.initState();
     _currentIndex = widget.initialIndex;
     _pageController = PageController(initialPage: _currentIndex);
+    _loadPreferences().then((_) {
+      _updateDisplayImagePaths();
+    });
+  }
+
+  void _updateDisplayImagePaths() {
+    _displayImagePaths = [];
+    if (_isSplitMode) {
+      for (final imagePath in widget.imagePaths) {
+        _displayImagePaths.add('$imagePath-left');
+        _displayImagePaths.add('$imagePath-right');
+      }
+    } else {
+      _displayImagePaths = List.from(widget.imagePaths);
+    }
+    setState(() {});
+  }
+
+  Future<void> _loadPreferences() async {
+    _prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _isSplitMode = _prefs.getBool('isSplitMode') ?? false;
+    });
+  }
+
+  Future<void> _toggleSplitMode(bool value) async {
+    setState(() {
+      _isSplitMode = value;
+    });
+    await _prefs.setBool('isSplitMode', _isSplitMode);
+    _updateDisplayImagePaths();
   }
 
   Future<Uint8List> _loadImageBytes(String imagePath) async {
@@ -91,6 +129,49 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
     }
   }
 
+  Widget _buildImagePage(String imagePathWithSuffix) {
+    final isLeft = imagePathWithSuffix.endsWith('-left');
+    final imagePath = imagePathWithSuffix.replaceAll('-left', '').replaceAll('-right', '');
+
+    return FutureBuilder<Uint8List>(
+      future: _loadImageBytes(imagePath),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        } else if (snapshot.hasError) {
+          return Center(
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Text(
+                '画像の読み込みに失敗しました: ${snapshot.error}',
+                style: const TextStyle(color: Colors.white),
+                textAlign: TextAlign.center,
+              ),
+            ),
+          );
+        } else if (snapshot.hasData) {
+          if (_isSplitMode) {
+            final image = img.decodeImage(snapshot.data!);
+            if (image != null && image.width > image.height) {
+              final half = isLeft
+                  ? img.copyCrop(image, x: 0, y: 0, width: image.width ~/ 2, height: image.height)
+                  : img.copyCrop(image, x: image.width ~/ 2, y: 0, width: image.width ~/ 2, height: image.height);
+              return Center(child: Image.memory(Uint8List.fromList(img.encodeJpg(half))));
+            }
+          }
+          return Center(child: Image.memory(snapshot.data!));
+        } else {
+          return const Center(
+            child: Text(
+              '画像データがありません。',
+              style: TextStyle(color: Colors.white),
+            ),
+          );
+        }
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -103,11 +184,27 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
               // TODO: Implement swap action
             },
           ),
-          IconButton(
-            icon: const Icon(Icons.chrome_reader_mode),
-            onPressed: () {
-              // TODO: Implement side navigation action
+          PopupMenuButton<bool>(
+            onSelected: (value) {
+              _toggleSplitMode(value);
             },
+            itemBuilder: (BuildContext context) => <PopupMenuEntry<bool>>[
+              PopupMenuItem<bool>(
+                value: true,
+                child: ListTile(
+                  leading: _isSplitMode ? const Icon(Icons.check) : null,
+                  title: const Text('見開きページを分けて表示'),
+                ),
+              ),
+              PopupMenuItem<bool>(
+                value: false,
+                child: ListTile(
+                  leading: !_isSplitMode ? const Icon(Icons.check) : null,
+                  title: const Text('見開きページを分けずに表示'),
+                ),
+              ),
+            ],
+            icon: const Icon(Icons.chrome_reader_mode),
           ),
           IconButton(
             icon: const Icon(Icons.lock),
@@ -135,46 +232,14 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
           Expanded(
             child: PageView.builder(
               controller: _pageController,
-              itemCount: widget.imagePaths.length,
+              itemCount: _displayImagePaths.length,
               onPageChanged: (index) {
                 setState(() {
                   _currentIndex = index;
                 });
               },
               itemBuilder: (context, index) {
-                final imagePath = widget.imagePaths[index];
-                if (_imageCache.containsKey(imagePath)) {
-                  return Center(child: Image.memory(_imageCache[imagePath]!));
-                }
-
-                return FutureBuilder<Uint8List>(
-                  future: _loadImageBytes(imagePath),
-                  builder: (context, snapshot) {
-                    if (snapshot.connectionState == ConnectionState.waiting) {
-                      return const Center(child: CircularProgressIndicator());
-                    } else if (snapshot.hasError) {
-                      return Center(
-                        child: Padding(
-                          padding: const EdgeInsets.all(16.0),
-                          child: Text(
-                            '画像の読み込みに失敗しました: ${snapshot.error}',
-                            style: const TextStyle(color: Colors.white),
-                            textAlign: TextAlign.center,
-                          ),
-                        ),
-                      );
-                    } else if (snapshot.hasData) {
-                      return Center(child: Image.memory(snapshot.data!));
-                    } else {
-                      return const Center(
-                        child: Text(
-                          '画像データがありません。',
-                          style: TextStyle(color: Colors.white),
-                        ),
-                      );
-                    }
-                  },
-                );
+                return _buildImagePage(_displayImagePaths[index]);
               },
             ),
           ),
@@ -185,7 +250,7 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 Text(
-                  '${_currentIndex + 1} / ${widget.imagePaths.length}',
+                  '${_currentIndex + 1} / ${_displayImagePaths.length}',
                   style: const TextStyle(color: Colors.white, fontSize: 16.0),
                 ),
               ],

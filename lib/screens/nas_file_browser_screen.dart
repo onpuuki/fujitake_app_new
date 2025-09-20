@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 import 'dart:typed_data';
@@ -11,6 +12,16 @@ import 'cache_list_screen.dart';
 import 'video_viewer_screen.dart';
 import '../models/cache_job_model.dart';
 import '../services/cache_downloader_service.dart';
+import '../services/global_log.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:io';
+import 'dart:convert';
+import 'package:crypto/crypto.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:video_thumbnail/video_thumbnail.dart';
+import 'package:fujitake_app_new/services/cache_path_service.dart';
+import 'package:image/image.dart' as img;
+import 'package:fujitake_app_new/utils/image_utils.dart';
 
 // ネイティブから受け取るファイル情報を表すクラス
 class SmbNativeFile {
@@ -30,21 +41,14 @@ class SmbNativeFile {
   });
 
   factory SmbNativeFile.fromMap(Map<dynamic, dynamic> map, String currentPath) {
-    final name = (map['name'] as String);
+    final name = map['name'] as String? ?? '';
     
-    // パスの手動正規化と結合
-    String normalizedCurrentPath = currentPath.endsWith('/') ? currentPath : '$currentPath/';
-    if (currentPath.isEmpty) {
-      normalizedCurrentPath = '';
-    }
-    final fullPath = normalizedCurrentPath + name;
-
     return SmbNativeFile(
       name: name,
-      isDirectory: map['isDirectory'] as bool,
+      isDirectory: map['isDirectory'] as bool? ?? false,
       size: map['size'] as int? ?? 0,
       lastModified: map['lastModified'] as int? ?? 0,
-      fullPath: fullPath,
+      fullPath: p.join(currentPath, name),
     );
   }
 }
@@ -58,25 +62,41 @@ class NasFileBrowserScreen extends StatefulWidget {
   State<NasFileBrowserScreen> createState() => _NasFileBrowserScreenState();
 }
 
+enum SortOptionValue {
+  nameAsc,
+  nameDesc,
+  sizeAsc,
+  sizeDesc,
+  dateAsc,
+  dateDesc,
+}
+
 class _NasFileBrowserScreenState extends State<NasFileBrowserScreen> {
   static const _smbChannel = MethodChannel('com.example.fujitake_app_new/smb');
+  static const String _sortOptionKey = 'nas_sort_option';
   final CacheDownloaderService _cacheDownloaderService = CacheDownloaderService.instance;
+  final CachePathService _cachePathService = CachePathService.instance;
   
+  SortOptionValue _sortOptionValue = SortOptionValue.dateDesc;
   List<SmbNativeFile> _files = [];
   String _currentPath = '';
   bool _isLoading = true;
   String? _error;
   
   SmbNativeFile? _fileToMove;
+  String? _currentShare;
+  SmbNativeFile? _fileToCopy;
   String? _sourcePathForMove;
   final Map<String, Uint8List?> _thumbnailCache = {};
-  final List<String> _debugLogs = [];
 
   @override
   void initState() {
     super.initState();
+    _currentShare = widget.server.shareName;
     _smbChannel.setMethodCallHandler(_handleNativeMethodCalls);
-    _listFiles(path: '');
+    _loadSortOption().then((_) {
+      _listFiles(path: '');
+    });
   }
 
   Future<dynamic> _handleNativeMethodCalls(MethodCall call) async {
@@ -84,22 +104,49 @@ class _NasFileBrowserScreenState extends State<NasFileBrowserScreen> {
       case 'onDebugLog':
         if (mounted) {
           setState(() {
-            _debugLogs.add(call.arguments as String);
+            GlobalLog.add(call.arguments as String);
           });
         }
         break;
       default:
-        // 他のメソッドコールがあればここで処理
         break;
     }
   }
 
+  Future<void> _loadSortOption() async {
+    final prefs = await SharedPreferences.getInstance();
+    final sortOptionName = prefs.getString(_sortOptionKey);
+    if (sortOptionName != null) {
+      try {
+        setState(() {
+          _sortOptionValue = SortOptionValue.values.firstWhere((e) => e.name == sortOptionName);
+        });
+      } catch (e) {
+        // 保存された値が無効な場合はデフォルト値を使用
+      }
+    }
+  }
+
+  Future<void> _saveSortOption(SortOptionValue value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_sortOptionKey, value.name);
+  }
+
   Future<void> _listFiles({String path = ''}) async {
+    if (widget.server.shareName != _currentShare) {
+      setState(() {
+        _fileToCopy = null;
+        _currentShare = widget.server.shareName;
+      });
+    }
+
     setState(() {
       _isLoading = true;
       _error = null;
       _currentPath = path;
     });
+
+    GlobalLog.add('Listing files for path: "$path"');
 
     try {
       final List<dynamic> files = await _smbChannel.invokeMethod('listFiles', {
@@ -111,8 +158,12 @@ class _NasFileBrowserScreenState extends State<NasFileBrowserScreen> {
       });
 
       setState(() {
-        _files = files.map((file) => SmbNativeFile.fromMap(file, _currentPath)).toList();
+        _files = files
+            .map((file) => SmbNativeFile.fromMap(file, _currentPath))
+            .where((file) => file.name.isNotEmpty) // nameが空でないものだけをリストに追加
+            .toList();
         _isLoading = false;
+        _sortFiles();
       });
     } on PlatformException catch (e) {
       setState(() {
@@ -128,21 +179,26 @@ class _NasFileBrowserScreenState extends State<NasFileBrowserScreen> {
   }
 
   Future<void> _openFile(SmbNativeFile file) async {
+    GlobalLog.add('Opening file: "${file.name}"');
     if (file.isDirectory) {
       _listFiles(path: file.fullPath);
       return;
     }
 
-    final remotePath = file.fullPath;
     final fileExtension = p.extension(file.name).toLowerCase();
     
     if (['.jpg', '.jpeg', '.png', '.gif', '.bmp'].contains(fileExtension)) {
+      final imageFiles = _files.where((f) => !f.isDirectory && _isImageFile(f.name)).toList();
+      final imagePaths = imageFiles.map((f) => f.fullPath).toList();
+      final initialIndex = imageFiles.indexOf(file);
+
       Navigator.push(
         context,
         MaterialPageRoute(
           builder: (context) => ImageViewerScreen(
             server: widget.server,
-            imagePath: remotePath,
+            imagePaths: imagePaths,
+            initialIndex: initialIndex,
           ),
         ),
       );
@@ -152,7 +208,7 @@ class _NasFileBrowserScreenState extends State<NasFileBrowserScreen> {
         MaterialPageRoute(
           builder: (context) => VideoViewerScreen(
             server: widget.server,
-            videoPath: remotePath,
+            videoPath: file.fullPath,
             localPath: null,
           ),
         ),
@@ -167,7 +223,9 @@ class _NasFileBrowserScreenState extends State<NasFileBrowserScreen> {
         onWillPop: _onWillPop,
         child: Scaffold(
           appBar: _buildAppBar(),
-          bottomNavigationBar: _fileToMove != null ? _buildMoveBottomAppBar() : null,
+          bottomNavigationBar: _fileToMove != null 
+              ? _buildMoveBottomAppBar() 
+              : (_fileToCopy != null ? _buildCopyBottomAppBar() : null),
           body: _buildBody(),
         ),
       ),
@@ -175,6 +233,7 @@ class _NasFileBrowserScreenState extends State<NasFileBrowserScreen> {
   }
 
   Future<bool> _onWillPop() async {
+    GlobalLog.add('Navigating back from: "$_currentPath"');
     if (_currentPath.isNotEmpty) {
       String parentPath = p.dirname(_currentPath);
       if (parentPath == '.') {
@@ -186,15 +245,130 @@ class _NasFileBrowserScreenState extends State<NasFileBrowserScreen> {
     return true;
   }
 
+
+  void _sortFiles() {
+    _files.sort((a, b) {
+      // ディレクトリは常にファイルの前に来るようにする
+      if (a.isDirectory && !b.isDirectory) {
+        return -1;
+      }
+      if (!a.isDirectory && b.isDirectory) {
+        return 1;
+      }
+
+      int compareResult;
+      switch (_sortOptionValue) {
+        case SortOptionValue.nameAsc:
+        case SortOptionValue.nameDesc:
+          compareResult = a.name.compareTo(b.name);
+          break;
+        case SortOptionValue.sizeAsc:
+        case SortOptionValue.sizeDesc:
+          compareResult = a.size.compareTo(b.size);
+          break;
+        case SortOptionValue.dateAsc:
+        case SortOptionValue.dateDesc:
+          compareResult = a.lastModified.compareTo(b.lastModified);
+          break;
+      }
+
+      if (_sortOptionValue == SortOptionValue.nameDesc ||
+          _sortOptionValue == SortOptionValue.sizeDesc ||
+          _sortOptionValue == SortOptionValue.dateDesc) {
+        return -compareResult;
+      }
+      return compareResult;
+    });
+    setState(() {});
+  }
+
+  void _showSortDialog() {
+    showDialog(
+      context: context,
+      builder: (context) {
+        SortOptionValue? tempSortOptionValue = _sortOptionValue;
+
+        return StatefulBuilder(
+          builder: (context, setState) {
+            return AlertDialog(
+              title: const Text('リストの並べ替え'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  RadioListTile<SortOptionValue>(
+                    title: const Text('ファイル名'),
+                    value: SortOptionValue.nameAsc,
+                    groupValue: tempSortOptionValue,
+                    onChanged: (value) => setState(() => tempSortOptionValue = value),
+                  ),
+                  RadioListTile<SortOptionValue>(
+                    title: const Text('ファイル名(降順)'),
+                    value: SortOptionValue.nameDesc,
+                    groupValue: tempSortOptionValue,
+                    onChanged: (value) => setState(() => tempSortOptionValue = value),
+                  ),
+                  RadioListTile<SortOptionValue>(
+                    title: const Text('ファイルサイズ'),
+                    value: SortOptionValue.sizeAsc,
+                    groupValue: tempSortOptionValue,
+                    onChanged: (value) => setState(() => tempSortOptionValue = value),
+                  ),
+                  RadioListTile<SortOptionValue>(
+                    title: const Text('ファイルサイズ(降順)'),
+                    value: SortOptionValue.sizeDesc,
+                    groupValue: tempSortOptionValue,
+                    onChanged: (value) => setState(() => tempSortOptionValue = value),
+                  ),
+                  RadioListTile<SortOptionValue>(
+                    title: const Text('日付'),
+                    value: SortOptionValue.dateAsc,
+                    groupValue: tempSortOptionValue,
+                    onChanged: (value) => setState(() => tempSortOptionValue = value),
+                  ),
+                  RadioListTile<SortOptionValue>(
+                    title: const Text('日付(降順)'),
+                    value: SortOptionValue.dateDesc,
+                    groupValue: tempSortOptionValue,
+                    onChanged: (value) => setState(() => tempSortOptionValue = value),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('キャンセル'),
+                ),
+                TextButton(
+                  onPressed: () {
+                    if (tempSortOptionValue != null) {
+                      _saveSortOption(tempSortOptionValue!);
+                      setState(() {
+                        _sortOptionValue = tempSortOptionValue!;
+                      });
+                      _sortFiles();
+                    }
+                    Navigator.of(context).pop();
+                  },
+                  child: const Text('確認'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
   AppBar _buildAppBar() {
     return AppBar(
       title: Text(widget.server.nickname),
       actions: [
         IconButton(
-          icon: const Icon(Icons.bug_report),
-          onPressed: _showDebugLogDialog,
-          tooltip: 'デバッグログを表示',
+          icon: const Icon(Icons.sort),
+          onPressed: _showSortDialog,
+          tooltip: '並べ替え',
         ),
+
         PopupMenuButton<String>(
           onSelected: (value) {
             if (value == 'cache_list') {
@@ -222,7 +396,7 @@ class _NasFileBrowserScreenState extends State<NasFileBrowserScreen> {
         return AlertDialog(
           title: const Text('デバッグログ'),
           content: SingleChildScrollView(
-            child: Text(_debugLogs.join('\n')),
+            child: Text(GlobalLog.logs.join('\n')),
           ),
           actions: [
             TextButton(
@@ -250,6 +424,27 @@ class _NasFileBrowserScreenState extends State<NasFileBrowserScreen> {
             onPressed: () => setState(() {
               _fileToMove = null;
               _sourcePathForMove = null;
+            }),
+          ),
+        ],
+      ),
+    );
+  }
+
+  BottomAppBar _buildCopyBottomAppBar() {
+    return BottomAppBar(
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceAround,
+        children: [
+          Text('${_fileToCopy!.name} をコピー中...'),
+          ElevatedButton(
+            onPressed: _copyFile,
+            child: const Text('ここに貼り付け'),
+          ),
+          IconButton(
+            icon: const Icon(Icons.cancel),
+            onPressed: () => setState(() {
+              _fileToCopy = null;
             }),
           ),
         ],
@@ -367,12 +562,86 @@ class _NasFileBrowserScreenState extends State<NasFileBrowserScreen> {
     return const CircularProgressIndicator(); // 初期表示
   }
   
+  bool _isImageFile(String fileName) {
+    final ext = p.extension(fileName).toLowerCase();
+    return ext == '.jpg' || ext == '.jpeg' || ext == '.png' || ext == '.gif' || ext == '.bmp' || ext == '.webp';
+  }
+
+
   Future<void> _getThumbnailData(SmbNativeFile file) async {
     final cacheKey = p.join(widget.server.shareName!, _currentPath, file.name);
     if (_thumbnailCache.containsKey(cacheKey)) {
       return;
     }
 
+    // ディスクキャッシュのパスを生成
+    final cacheDir = await getTemporaryDirectory();
+    final hash = sha1.convert(utf8.encode(cacheKey)).toString();
+    final cacheFile = File('${cacheDir.path}/thumbnail_$hash.jpg');
+
+    // ディスクキャッシュが存在すればそれを読み込む
+    if (await cacheFile.exists()) {
+      final bytes = await cacheFile.readAsBytes();
+      if (mounted) {
+        setState(() {
+          _thumbnailCache[cacheKey] = bytes;
+        });
+      }
+      return;
+    }
+
+    // フォルダキャッシュ（ファイル本体）の存在を確認
+    final localPath = await _cachePathService.getLocalPath(
+      widget.server.id,
+      file.fullPath,
+    );
+
+    if (localPath != null && await File(localPath).exists()) {
+      // ローカルファイルからサムネイルを生成
+      try {
+        Uint8List? thumbnail;
+        if (_isVideoFile(file.name)) {
+          thumbnail = await VideoThumbnail.thumbnailData(
+            video: localPath,
+            imageFormat: ImageFormat.JPEG,
+            maxWidth: 128,
+            quality: 25,
+          );
+        } else if (_isImageFile(file.name)) {
+          final imageBytes = await File(localPath).readAsBytes();
+          final image = await decodeImageInBackground(imageBytes);
+          if (image != null) {
+            final resizedImage = img.copyResize(image, width: 128);
+            thumbnail = Uint8List.fromList(img.encodeJpg(resizedImage, quality: 25));
+          }
+
+Future<img.Image?> _decodeImage(Uint8List bytes) async {
+  return await compute(img.decodeImage, bytes);
+}
+
+        }
+
+        if (thumbnail != null) {
+          await cacheFile.writeAsBytes(thumbnail);
+        }
+
+        if (mounted) {
+          setState(() {
+            _thumbnailCache[cacheKey] = thumbnail;
+          });
+        }
+      } catch (e) {
+        GlobalLog.add('ローカルからのサムネイル生成に失敗しました: $e');
+        if (mounted) {
+          setState(() {
+            _thumbnailCache[cacheKey] = null;
+          });
+        }
+      }
+      return;
+    }
+
+    // ネットワークからサムネイルを取得
     try {
       final Uint8List? thumbnail = await _smbChannel.invokeMethod('getThumbnail', {
         'host': widget.server.host,
@@ -389,6 +658,10 @@ class _NasFileBrowserScreenState extends State<NasFileBrowserScreen> {
         },
       });
 
+      if (thumbnail != null) {
+        await cacheFile.writeAsBytes(thumbnail);
+      }
+
       if (mounted) {
         setState(() {
           _thumbnailCache[cacheKey] = thumbnail;
@@ -397,7 +670,7 @@ class _NasFileBrowserScreenState extends State<NasFileBrowserScreen> {
     } on PlatformException catch (e) {
       if (mounted) {
         setState(() {
-          _thumbnailCache[cacheKey] = null; // エラーがあった場合はnullをセット
+          _thumbnailCache[cacheKey] = null;
         });
       }
       debugPrint("サムネイル取得エラー: ${e.message}");
@@ -409,6 +682,11 @@ class _NasFileBrowserScreenState extends State<NasFileBrowserScreen> {
       onSelected: (value) {
         if (value == 'delete') {
           _showDeleteConfirmationDialog(file);
+        } else if (value == 'copy') {
+          setState(() {
+            _fileToCopy = file;
+            _fileToMove = null; // Reset move state
+          });
         } else if (value == 'move') {
           setState(() {
             _fileToMove = file;
@@ -420,6 +698,10 @@ class _NasFileBrowserScreenState extends State<NasFileBrowserScreen> {
       },
       itemBuilder: (BuildContext context) {
         return [
+          const PopupMenuItem<String>(
+            value: 'copy',
+            child: Text('コピー'),
+          ),
           const PopupMenuItem<String>(
             value: 'move',
             child: Text('移動'),
@@ -500,6 +782,7 @@ class _NasFileBrowserScreenState extends State<NasFileBrowserScreen> {
     final path = p.join(_currentPath, directory.name);
     final job = CacheJob(
         serverId: widget.server.id,
+        shareName: _currentShare!,
         remotePath: path,
         recursive: recursive,
         status: 'pending',
@@ -563,6 +846,43 @@ class _NasFileBrowserScreenState extends State<NasFileBrowserScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('${file.name} の削除に失敗しました: $e')),
       );
+    }
+  }
+
+  Future<void> _copyFile() async {
+    if (_fileToCopy == null) return;
+
+    final destinationPath = p.join(_currentPath, _fileToCopy!.name);
+
+    try {
+      final result = await _smbChannel.invokeMethod('copy', {
+        'host': widget.server.host,
+        'shareName': _currentShare,
+        'username': widget.server.username,
+        'password': widget.server.password,
+        'sourcePath': _fileToCopy!.fullPath,
+        'destinationPath': destinationPath,
+        'domain': widget.server.domain,
+      });
+
+      if (result == true) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('${_fileToCopy!.name} をコピーしました。')),
+        );
+        _listFiles(path: _currentPath);
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('ファイルのコピーに失敗しました。')),
+        );
+      }
+    } on PlatformException catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('エラー: ${e.message}')),
+      );
+    } finally {
+      setState(() {
+        _fileToCopy = null;
+      });
     }
   }
 

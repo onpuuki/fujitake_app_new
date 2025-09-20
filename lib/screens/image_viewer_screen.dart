@@ -17,8 +17,6 @@ img.Image? _decodeImage(List<int> bytes) {
   return img.decodeImage(Uint8List.fromList(bytes));
 }
 
-class ImageViewerScreen extends StatefulWidget {
-  final List<String> imagePaths;
 // 画像の分割とエンコードを別Isolateで実行するためのトップレベル関数
 Uint8List _splitAndEncodeImage(Map<String, dynamic> params) {
   final image = params['image'] as img.Image;
@@ -29,6 +27,8 @@ Uint8List _splitAndEncodeImage(Map<String, dynamic> params) {
   return Uint8List.fromList(img.encodeJpg(half));
 }
 
+class ImageViewerScreen extends StatefulWidget {
+  final List<String> imagePaths;
   final int initialIndex;
   final bool isLocal;
 

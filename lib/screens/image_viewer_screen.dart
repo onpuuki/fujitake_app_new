@@ -8,39 +8,50 @@ import '../services/cache_path_service.dart';
 import '../services/debug_log_service.dart';
 
 class ImageViewerScreen extends StatefulWidget {
+  final List<String> imagePaths;
+  final int initialIndex;
+  final bool isLocal;
+
   final NasServer? server;
-  final String? imagePath;
-  final String? localPath;
 
   const ImageViewerScreen({
     super.key,
+    required this.imagePaths,
+    required this.initialIndex,
+    this.isLocal = false,
     this.server,
-    this.imagePath,
-    this.localPath,
-  }) : assert(server != null && imagePath != null || localPath != null);
+  });
 
   @override
   State<ImageViewerScreen> createState() => _ImageViewerScreenState();
 }
 
 class _ImageViewerScreenState extends State<ImageViewerScreen> {
-  late Future<Uint8List> _imageBytesFuture;
+  late PageController _pageController;
+  late int _currentIndex;
+  final Map<String, Uint8List> _imageCache = {};
 
   @override
   void initState() {
     super.initState();
-    _imageBytesFuture = _loadImageBytes();
+    _currentIndex = widget.initialIndex;
+    _pageController = PageController(initialPage: _currentIndex);
   }
 
-  Future<Uint8List> _loadImageBytes() async {
-    if (widget.localPath != null) {
-      // ローカルファイルパスが指定されている場合
-      final localFile = File(widget.localPath!);
-      return await localFile.readAsBytes();
+  Future<Uint8List> _loadImageBytes(String imagePath) async {
+    if (_imageCache.containsKey(imagePath)) {
+      return _imageCache[imagePath]!;
+    }
+
+    if (widget.isLocal) {
+      final localFile = File(imagePath);
+      final bytes = await localFile.readAsBytes();
+      _imageCache[imagePath] = bytes;
+      return bytes;
     }
 
     // 1. キャッシュファイルの存在を確認
-    final localPath = await CachePathService.instance.getLocalPath(widget.server!.id, widget.imagePath!);
+    final localPath = await CachePathService.instance.getLocalPath(widget.server!.id, imagePath);
     final localFile = File(localPath);
     DebugLogService().addLog('[_loadImageBytes] Checking for cache at: "$localPath"');
 
@@ -50,10 +61,12 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
     if (fileExists) {
       // 3. キャッシュが存在する場合
       print("キャッシュから画像を表示します: $localPath");
-      return await localFile.readAsBytes();
+      final bytes = await localFile.readAsBytes();
+      _imageCache[imagePath] = bytes;
+      return bytes;
     } else {
       // 4. キャッシュが存在しない場合
-      print("リモートから画像を読み込みます: ${widget.imagePath}");
+      print("リモートから画像を読み込みます: $imagePath");
       const MethodChannel smbChannel = MethodChannel('com.example.fujitake_app_new/smb');
       try {
         final Uint8List imageBytes = await smbChannel.invokeMethod('readFile', {
@@ -61,7 +74,7 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
           'shareName': widget.server!.shareName,
           'username': widget.server!.username,
           'password': widget.server!.password,
-          'path': widget.imagePath,
+          'path': imagePath,
           'domain': widget.server!.domain,
         });
 
@@ -70,6 +83,7 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
         await localFile.writeAsBytes(imageBytes);
         print("画像をキャッシュに保存しました: $localPath");
 
+        _imageCache[imagePath] = imageBytes;
         return imageBytes;
       } on PlatformException catch (e) {
         throw Exception('Failed to load image bytes: ${e.message}');
@@ -80,37 +94,104 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(p.basename(widget.localPath ?? widget.imagePath!))),
+      appBar: AppBar(
+        title: Text(p.basename(widget.imagePaths[_currentIndex])),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.swap_horiz),
+            onPressed: () {
+              // TODO: Implement swap action
+            },
+          ),
+          IconButton(
+            icon: const Icon(Icons.chrome_reader_mode),
+            onPressed: () {
+              // TODO: Implement side navigation action
+            },
+          ),
+          IconButton(
+            icon: const Icon(Icons.lock),
+            onPressed: () {
+              // TODO: Implement lock action 1
+            },
+          ),
+          IconButton(
+            icon: const Icon(Icons.lock),
+            onPressed: () {
+              // TODO: Implement lock action 2
+            },
+          ),
+          IconButton(
+            icon: const Icon(Icons.lock),
+            onPressed: () {
+              // TODO: Implement lock action 3
+            },
+          ),
+        ],
+      ),
       backgroundColor: Colors.black,
-      body: Center(
-        child: FutureBuilder<Uint8List>(
-          future: _imageBytesFuture,
-          builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting) {
-              return const Center(child: CircularProgressIndicator());
-            } else if (snapshot.hasError) {
-              return Center(
-                child: Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: Text(
-                    '画像の読み込みに失敗しました: ${snapshot.error}',
-                    style: const TextStyle(color: Colors.white),
-                    textAlign: TextAlign.center,
-                  ),
+      body: Column(
+        children: [
+          Expanded(
+            child: PageView.builder(
+              controller: _pageController,
+              itemCount: widget.imagePaths.length,
+              onPageChanged: (index) {
+                setState(() {
+                  _currentIndex = index;
+                });
+              },
+              itemBuilder: (context, index) {
+                final imagePath = widget.imagePaths[index];
+                if (_imageCache.containsKey(imagePath)) {
+                  return Center(child: Image.memory(_imageCache[imagePath]!));
+                }
+
+                return FutureBuilder<Uint8List>(
+                  future: _loadImageBytes(imagePath),
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState == ConnectionState.waiting) {
+                      return const Center(child: CircularProgressIndicator());
+                    } else if (snapshot.hasError) {
+                      return Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(16.0),
+                          child: Text(
+                            '画像の読み込みに失敗しました: ${snapshot.error}',
+                            style: const TextStyle(color: Colors.white),
+                            textAlign: TextAlign.center,
+                          ),
+                        ),
+                      );
+                    } else if (snapshot.hasData) {
+                      return Center(child: Image.memory(snapshot.data!));
+                    } else {
+                      return const Center(
+                        child: Text(
+                          '画像データがありません。',
+                          style: TextStyle(color: Colors.white),
+                        ),
+                      );
+                    }
+                  },
+                );
+              },
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.all(16.0),
+            color: Colors.black.withOpacity(0.5),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  '${_currentIndex + 1} / ${widget.imagePaths.length}',
+                  style: const TextStyle(color: Colors.white, fontSize: 16.0),
                 ),
-              );
-            } else if (snapshot.hasData) {
-              return Center(child: Image.memory(snapshot.data!));
-            } else {
-              return const Center(
-                child: Text(
-                  '画像データがありません。',
-                  style: TextStyle(color: Colors.white),
-                ),
-              );
-            }
-          },
-        ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

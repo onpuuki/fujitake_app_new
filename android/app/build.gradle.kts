@@ -28,7 +28,6 @@ android {
         targetSdk = 34
         versionCode = 1
         versionName = "1.0"
-
     }
 
     buildTypes {
@@ -37,9 +36,6 @@ android {
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             signingConfig = signingConfigs.getByName("debug")
             isShrinkResources = true
-            ndk {
-                abiFilters.addAll(listOf("arm64-v8a"))
-            }
         }
     }
 

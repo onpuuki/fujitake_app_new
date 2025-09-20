@@ -47,6 +47,7 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
   late int _currentIndex;
   final Map<String, Uint8List> _imageCache = {};
   bool _isSplitMode = false;
+  bool _isReverse = false; // false: 右送り, true: 左送り
   late SharedPreferences _prefs;
   List<String> _displayImagePaths = [];
   bool _isLoading = false;
@@ -165,6 +166,7 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
     if (mounted) {
       setState(() {
         _isSplitMode = _prefs.getBool('isSplitMode') ?? false;
+        _isReverse = _prefs.getBool('isReverse') ?? false;
       });
     }
   }
@@ -276,15 +278,41 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
     }
   }
 
+  Future<void> _toggleReverseMode(bool value) async {
+    if (!mounted) return;
+    setState(() {
+      _isReverse = value;
+    });
+    await _prefs.setBool('isReverse', _isReverse);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: Text(_displayImagePaths.isNotEmpty ? p.basename(_displayImagePaths[_currentIndex].replaceAll('-left', '').replaceAll('-right', '')) : ''),
         actions: [
-          IconButton(
+          PopupMenuButton<bool>(
+            onSelected: (value) {
+              _toggleReverseMode(value);
+            },
+            itemBuilder: (BuildContext context) => <PopupMenuEntry<bool>>[
+              PopupMenuItem<bool>(
+                value: false,
+                child: ListTile(
+                  leading: !_isReverse ? const Icon(Icons.check) : null,
+                  title: const Text('右送り'),
+                ),
+              ),
+              PopupMenuItem<bool>(
+                value: true,
+                child: ListTile(
+                  leading: _isReverse ? const Icon(Icons.check) : null,
+                  title: const Text('左送り'),
+                ),
+              ),
+            ],
             icon: const Icon(Icons.swap_horiz),
-            onPressed: () {},
           ),
           PopupMenuButton<bool>(
             onSelected: (value) {
@@ -331,6 +359,7 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
                   child: PageView.builder(
                     controller: _pageController,
                     itemCount: _displayImagePaths.length,
+                    reverse: _isReverse,
                     onPageChanged: (index) {
                       if (mounted) {
                         setState(() {

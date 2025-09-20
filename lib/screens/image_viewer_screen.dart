@@ -72,61 +72,64 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
   Future<void> _updateDisplayImagePaths() async {
     final stopwatch = Stopwatch()..start();
     DebugLogService().addLog('[updateDisplayImagePaths] Start.');
+
     if (mounted) {
       setState(() {
         _isLoading = true;
-      });
-    }
-
-    final newImagePaths = <String>[];
-    if (_isSplitMode) {
-      final futures = <Future<void>>[];
-      final imagePathResults = List<String?>.filled(widget.imagePaths.length * 2, null);
-
-      for (int i = 0; i < widget.imagePaths.length; i++) {
-        final imagePath = widget.imagePaths[i];
-        futures.add(() async {
-          final stopwatch = Stopwatch()..start();
-          try {
-            bool isLandscape;
-            if (_isLandscapeMap.containsKey(imagePath)) {
-              isLandscape = _isLandscapeMap[imagePath]!;
-            } else {
-              final bytes = await _loadImageBytes(imagePath);
-              final image = await compute(_decodeImage, bytes.toList());
-              isLandscape = image != null && image.width > image.height;
-              _isLandscapeMap[imagePath] = isLandscape;
-            }
-
-            if (isLandscape) {
-              imagePathResults[i * 2] = '$imagePath-left';
-              imagePathResults[i * 2 + 1] = '$imagePath-right';
-            } else {
-              imagePathResults[i * 2] = imagePath;
-            }
-          } catch (e) {
-            imagePathResults[i * 2] = imagePath;
-          } finally {
-            stopwatch.stop();
-            DebugLogService().addLog('[_updateDisplayImagePaths] Processed $imagePath in ${stopwatch.elapsedMilliseconds}ms.');
-          }
-        }());
-      }
-
-      await Future.wait(futures);
-      newImagePaths.addAll(imagePathResults.where((p) => p != null).cast<String>());
-    } else {
-      newImagePaths.addAll(widget.imagePaths);
-    }
-
-    if (mounted) {
-      setState(() {
-        _displayImagePaths = newImagePaths;
+        if (!_isSplitMode) {
+          _displayImagePaths = List.from(widget.imagePaths);
+        } else {
+          // Initially, assume all images are portrait.
+          _displayImagePaths = List.from(widget.imagePaths);
+          // Start background processing to check for landscape images.
+          _updateOrientationsInBackground();
+        }
         _isLoading = false;
       });
     }
     stopwatch.stop();
-    DebugLogService().addLog('[updateDisplayImagePaths] Finished in ${stopwatch.elapsedMilliseconds}ms.');
+    DebugLogService().addLog('[updateDisplayImagePaths] Initial update finished in ${stopwatch.elapsedMilliseconds}ms.');
+  }
+
+  Future<void> _updateOrientationsInBackground() async {
+    final newImagePaths = List<String?>.filled(widget.imagePaths.length * 2, null);
+    bool needsUpdate = false;
+
+    for (int i = 0; i < widget.imagePaths.length; i++) {
+      final imagePath = widget.imagePaths[i];
+      final stopwatch = Stopwatch()..start();
+      try {
+        bool isLandscape;
+        if (_isLandscapeMap.containsKey(imagePath)) {
+          isLandscape = _isLandscapeMap[imagePath]!;
+        } else {
+          final bytes = await _loadImageBytes(imagePath);
+          final image = await compute(_decodeImage, bytes.toList());
+          isLandscape = image != null && image.width > image.height;
+          _isLandscapeMap[imagePath] = isLandscape;
+        }
+
+        if (isLandscape) {
+          newImagePaths[i * 2] = '$imagePath-left';
+          newImagePaths[i * 2 + 1] = '$imagePath-right';
+          needsUpdate = true;
+        } else {
+          newImagePaths[i * 2] = imagePath;
+        }
+      } catch (e) {
+        newImagePaths[i * 2] = imagePath;
+      } finally {
+        stopwatch.stop();
+        DebugLogService().addLog('[_updateOrientationsInBackground] Processed $imagePath in ${stopwatch.elapsedMilliseconds}ms.');
+      }
+    }
+
+    if (needsUpdate && mounted) {
+      setState(() {
+        _displayImagePaths = newImagePaths.where((p) => p != null).cast<String>().toList();
+      });
+      DebugLogService().addLog('[_updateOrientationsInBackground] UI updated with landscape splits.');
+    }
   }
 
   Future<void> _loadPreferences() async {

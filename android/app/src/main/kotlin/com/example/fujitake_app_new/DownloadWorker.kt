@@ -59,6 +59,7 @@ class DownloadWorker(appContext: Context, workerParams: WorkerParameters) : Coro
                     val relativePath = file.path.substringAfter("smb://$host/$shareName/")
                     val hashedFileName = sha256(relativePath) + ".png"
                     val localFile = File(localPathRoot, hashedFileName)
+                    localFile.parentFile?.mkdirs()
 
                     sendDebugLog("Downloading ${file.path} to ${localFile.path}")
                     FileOutputStream(localFile).use { outputStream ->

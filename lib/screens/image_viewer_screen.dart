@@ -19,6 +19,16 @@ img.Image? _decodeImage(List<int> bytes) {
 
 class ImageViewerScreen extends StatefulWidget {
   final List<String> imagePaths;
+// 画像の分割とエンコードを別Isolateで実行するためのトップレベル関数
+Uint8List _splitAndEncodeImage(Map<String, dynamic> params) {
+  final image = params['image'] as img.Image;
+  final isLeft = params['isLeft'] as bool;
+  final half = isLeft
+      ? img.copyCrop(image, x: 0, y: 0, width: image.width ~/ 2, height: image.height)
+      : img.copyCrop(image, x: image.width ~/ 2, y: 0, width: image.width ~/ 2, height: image.height);
+  return Uint8List.fromList(img.encodeJpg(half));
+}
+
   final int initialIndex;
   final bool isLocal;
 
@@ -249,10 +259,15 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
 
   Widget _buildImageView(img.Image image, bool isLeft, Uint8List originalBytes) {
     if (_isSplitMode && image.width > image.height) {
-      final half = isLeft
-          ? img.copyCrop(image, x: 0, y: 0, width: image.width ~/ 2, height: image.height)
-          : img.copyCrop(image, x: image.width ~/ 2, y: 0, width: image.width ~/ 2, height: image.height);
-      return Center(child: Image.memory(Uint8List.fromList(img.encodeJpg(half))));
+      return FutureBuilder<Uint8List>(
+        future: compute(_splitAndEncodeImage, {'image': image, 'isLeft': isLeft}),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.done && snapshot.hasData) {
+            return Center(child: Image.memory(snapshot.data!));
+          }
+          return const Center(child: CircularProgressIndicator());
+        },
+      );
     }
     return Center(child: Image.memory(originalBytes));
   }

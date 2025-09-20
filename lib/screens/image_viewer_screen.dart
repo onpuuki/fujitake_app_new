@@ -45,6 +45,7 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
   late SharedPreferences _prefs;
   List<String> _displayImagePaths = [];
   bool _isLoading = false; // ローディング状態を管理
+  final Map<String, bool> _isLandscapeMap = {};
 
   @override
   void initState() {
@@ -65,21 +66,41 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
 
     final newImagePaths = <String>[];
     if (_isSplitMode) {
-      for (final imagePath in widget.imagePaths) {
-        try {
-          final bytes = await _loadImageBytes(imagePath);
-          final image = await compute(_decodeImage, bytes.toList());
-          if (image != null && image.width > image.height) {
-            newImagePaths.add('$imagePath-left');
-            newImagePaths.add('$imagePath-right');
-          } else {
-            newImagePaths.add(imagePath);
+      final futures = <Future<void>>[];
+      final imagePathResults = List<String?>.filled(widget.imagePaths.length * 2, null);
+
+      for (int i = 0; i < widget.imagePaths.length; i++) {
+        final imagePath = widget.imagePaths[i];
+        futures.add(() async {
+          try {
+            bool isLandscape;
+            if (_isLandscapeMap.containsKey(imagePath)) {
+              isLandscape = _isLandscapeMap[imagePath]!;
+              DebugLogService().addLog('[_updateDisplayImagePaths] Use cached orientation for $imagePath: ${isLandscape ? "Landscape" : "Portrait"}');
+            } else {
+              final bytes = await _loadImageBytes(imagePath);
+              final image = await compute(_decodeImage, bytes.toList());
+              isLandscape = image != null && image.width > image.height;
+              _isLandscapeMap[imagePath] = isLandscape;
+              DebugLogService().addLog('[_updateDisplayImagePaths] Fetched and cached orientation for $imagePath: ${isLandscape ? "Landscape" : "Portrait"}');
+            }
+
+            if (isLandscape) {
+              imagePathResults[i * 2] = '$imagePath-left';
+              imagePathResults[i * 2 + 1] = '$imagePath-right';
+            } else {
+              imagePathResults[i * 2] = imagePath;
+            }
+          } catch (e) {
+            DebugLogService().addLog('[updateDisplayImagePaths] Error processing $imagePath: $e');
+            imagePathResults[i * 2] = imagePath;
           }
-        } catch (e) {
-          DebugLogService().addLog('[updateDisplayImagePaths] Error processing $imagePath: $e');
-          newImagePaths.add(imagePath); // エラーが発生した場合は元のパスを追加
-        }
+        }());
       }
+
+      await Future.wait(futures);
+      newImagePaths.addAll(imagePathResults.where((p) => p != null).cast<String>());
+
     } else {
       newImagePaths.addAll(widget.imagePaths);
     }

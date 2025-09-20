@@ -104,7 +104,7 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
             },
           ),
           IconButton(
-            icon: const Icon(Icons.menu),
+            icon: const Icon(Icons.chrome_reader_mode),
             onPressed: () {
               // TODO: Implement side navigation action
             },

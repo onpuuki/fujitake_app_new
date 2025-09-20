@@ -70,65 +70,93 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
   }
 
   Future<void> _updateDisplayImagePaths() async {
-    final stopwatch = Stopwatch()..start();
     DebugLogService().addLog('[updateDisplayImagePaths] Start.');
+    if (!mounted) return;
 
-    if (mounted) {
-      setState(() {
-        _isLoading = true;
-        if (!_isSplitMode) {
-          _displayImagePaths = List.from(widget.imagePaths);
-        } else {
-          // Initially, assume all images are portrait.
-          _displayImagePaths = List.from(widget.imagePaths);
-          // Start background processing to check for landscape images.
-          _updateOrientationsInBackground();
-        }
-        _isLoading = false;
-      });
+    setState(() {
+      _isLoading = true;
+      // For split mode, start with a portrait-only list for fast initial display.
+      // The actual orientation check and list update will happen in the background.
+      _displayImagePaths = List.from(widget.imagePaths);
+    });
+
+    if (_isSplitMode) {
+      _processImagesInBackgroundAndUpdateUI();
     }
-    stopwatch.stop();
-    DebugLogService().addLog('[updateDisplayImagePaths] Initial update finished in ${stopwatch.elapsedMilliseconds}ms.');
+
+    setState(() {
+      _isLoading = false;
+    });
+    DebugLogService().addLog('[updateDisplayImagePaths] Initial display paths set.');
   }
 
-  Future<void> _updateOrientationsInBackground() async {
-    final newImagePaths = List<String?>.filled(widget.imagePaths.length * 2, null);
-    bool needsUpdate = false;
+  Future<void> _processImage(String imagePath) {
+    // If processing is already underway for this image, return the existing future.
+    if (_imageProcessingFutures.containsKey(imagePath)) {
+      return _imageProcessingFutures[imagePath]!;
+    }
 
-    for (int i = 0; i < widget.imagePaths.length; i++) {
-      final imagePath = widget.imagePaths[i];
-      final stopwatch = Stopwatch()..start();
+    // Start new processing.
+    final completer = Completer<void>();
+    _imageProcessingFutures[imagePath] = completer.future;
+
+    Future(() async {
       try {
-        bool isLandscape;
-        if (_isLandscapeMap.containsKey(imagePath)) {
-          isLandscape = _isLandscapeMap[imagePath]!;
-        } else {
-          final bytes = await _loadImageBytes(imagePath);
-          final image = await compute(_decodeImage, bytes.toList());
-          isLandscape = image != null && image.width > image.height;
-          _isLandscapeMap[imagePath] = isLandscape;
-        }
+        // Skip if orientation is already known.
+        if (_isLandscapeMap.containsKey(imagePath)) return;
+
+        final bytes = await _loadImageBytes(imagePath);
+        final image = await compute(_decodeImage, bytes.toList());
+        final isLandscape = image != null && image.width > image.height;
+        _isLandscapeMap[imagePath] = isLandscape;
 
         if (isLandscape) {
-          newImagePaths[i * 2] = '$imagePath-left';
-          newImagePaths[i * 2 + 1] = '$imagePath-right';
-          needsUpdate = true;
-        } else {
-          newImagePaths[i * 2] = imagePath;
+          final leftHalfBytes = await compute(_splitAndEncodeImage, {'image': image, 'isLeft': true});
+          _splitImageCache['$imagePath-left'] = leftHalfBytes;
+          final rightHalfBytes = await compute(_splitAndEncodeImage, {'image': image, 'isLeft': false});
+          _splitImageCache['$imagePath-right'] = rightHalfBytes;
         }
       } catch (e) {
-        newImagePaths[i * 2] = imagePath;
+        DebugLogService().addLog('[_processImage] Error processing $imagePath: $e');
+        _isLandscapeMap[imagePath] = false; // Assume portrait on error.
       } finally {
-        stopwatch.stop();
-        DebugLogService().addLog('[_updateOrientationsInBackground] Processed $imagePath in ${stopwatch.elapsedMilliseconds}ms.');
+        completer.complete();
+      }
+    });
+
+    return completer.future;
+  }
+
+  Future<void> _processImagesInBackgroundAndUpdateUI() async {
+    final newImagePaths = <String>[];
+    bool listChanged = false;
+
+    for (final imagePath in widget.imagePaths) {
+      await _processImage(imagePath);
+      if (!mounted) return;
+
+      final isLandscape = _isLandscapeMap[imagePath] ?? false;
+      if (isLandscape) {
+        newImagePaths.add('$imagePath-left');
+        newImagePaths.add('$imagePath-right');
+        listChanged = true;
+      } else {
+        newImagePaths.add(imagePath);
       }
     }
 
-    if (needsUpdate && mounted) {
+    if (listChanged && mounted) {
+      // Preserve current reading position
+      final currentOriginalPath = _displayImagePaths[_currentIndex].replaceAll('-left', '').replaceAll('-right', '');
+      final newIndex = newImagePaths.indexWhere((p) => p.contains(currentOriginalPath));
+
       setState(() {
-        _displayImagePaths = newImagePaths.where((p) => p != null).cast<String>().toList();
+        _displayImagePaths = newImagePaths;
+        if (newIndex != -1) {
+          _pageController.jumpToPage(newIndex);
+        }
       });
-      DebugLogService().addLog('[_updateOrientationsInBackground] UI updated with landscape splits.');
+      DebugLogService().addLog('[_processImagesInBackgroundAndUpdateUI] UI updated with landscape splits.');
     }
   }
 
@@ -205,41 +233,20 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
     final stopwatch = Stopwatch()..start();
     try {
       if (_splitImageCache.containsKey(imagePathWithSuffix)) {
-        DebugLogService().addLog('[_getImage] Load from split cache: $imagePathWithSuffix');
         return _splitImageCache[imagePathWithSuffix]!;
       }
-      if (!_isSplitMode) {
-        return _loadImageBytes(imagePathWithSuffix);
+
+      final originalPath = imagePathWithSuffix.replaceAll('-left', '').replaceAll('-right', '');
+      await _processImage(originalPath);
+
+      if (_splitImageCache.containsKey(imagePathWithSuffix)) {
+        return _splitImageCache[imagePathWithSuffix]!;
       }
-      final future = _imageProcessingFutures[imagePathWithSuffix];
-      if (future != null) {
-        await future;
-        if (_splitImageCache.containsKey(imagePathWithSuffix)) {
-          return _splitImageCache[imagePathWithSuffix]!;
-        }
-      }
-      final completer = Completer<void>();
-      _imageProcessingFutures[imagePathWithSuffix] = completer.future;
-      try {
-        final imagePath = imagePathWithSuffix.replaceAll('-left', '').replaceAll('-right', '');
-        final bytes = await _loadImageBytes(imagePath);
-        final image = await compute(_decodeImage, bytes.toList());
-        if (image != null && image.width > image.height) {
-          final isLeft = imagePathWithSuffix.endsWith('-left');
-          final halfBytes = await compute(_splitAndEncodeImage, {'image': image, 'isLeft': isLeft});
-          _splitImageCache[imagePathWithSuffix] = halfBytes;
-          return halfBytes;
-        } else {
-          _splitImageCache[imagePathWithSuffix] = bytes;
-          return bytes;
-        }
-      } finally {
-        completer.complete();
-        _imageProcessingFutures.remove(imagePathWithSuffix);
-      }
+
+      return _loadImageBytes(originalPath);
     } finally {
       stopwatch.stop();
-      DebugLogService().addLog('[_getImage] Processed $imagePathWithSuffix in ${stopwatch.elapsedMilliseconds}ms.');
+      DebugLogService().addLog('[_getImage] Finished getting $imagePathWithSuffix in ${stopwatch.elapsedMilliseconds}ms.');
     }
   }
 

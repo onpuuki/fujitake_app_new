@@ -6,6 +6,8 @@ import '../models/nas_server_model.dart';
 import 'dart:io';
 import '../services/cache_path_service.dart';
 import '../services/debug_log_service.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:image/image.dart' as img;
 
 class ImageViewerScreen extends StatefulWidget {
   final List<String> imagePaths;
@@ -26,8 +28,6 @@ class ImageViewerScreen extends StatefulWidget {
   State<ImageViewerScreen> createState() => _ImageViewerScreenState();
 }
 
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:image/image.dart' as img;
 
 class _ImageViewerScreenState extends State<ImageViewerScreen> {
   late PageController _pageController;
@@ -48,17 +48,25 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
     });
   }
 
-  void _updateDisplayImagePaths() {
-    _displayImagePaths = [];
+  Future<void> _updateDisplayImagePaths() async {
+    final newImagePaths = <String>[];
     if (_isSplitMode) {
       for (final imagePath in widget.imagePaths) {
-        _displayImagePaths.add('$imagePath-left');
-        _displayImagePaths.add('$imagePath-right');
+        final bytes = await _loadImageBytes(imagePath);
+        final image = img.decodeImage(bytes);
+        if (image != null && image.width > image.height) {
+          newImagePaths.add('$imagePath-left');
+          newImagePaths.add('$imagePath-right');
+        } else {
+          newImagePaths.add(imagePath);
+        }
       }
     } else {
-      _displayImagePaths = List.from(widget.imagePaths);
+      newImagePaths.addAll(widget.imagePaths);
     }
-    setState(() {});
+    setState(() {
+      _displayImagePaths = newImagePaths;
+    });
   }
 
   Future<void> _loadPreferences() async {
@@ -172,6 +180,15 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
     );
   }
 
+  Future<void> _preloadImages(int index) async {
+    if (index > 0) {
+      _loadImageBytes(_displayImagePaths[index - 1]);
+    }
+    if (index < _displayImagePaths.length - 1) {
+      _loadImageBytes(_displayImagePaths[index + 1]);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -237,6 +254,7 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
                 setState(() {
                   _currentIndex = index;
                 });
+                _preloadImages(index);
               },
               itemBuilder: (context, index) {
                 return _buildImagePage(_displayImagePaths[index]);

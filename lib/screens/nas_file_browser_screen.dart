@@ -201,12 +201,17 @@ class _NasFileBrowserScreenState extends State<NasFileBrowserScreen> {
     final fileExtension = p.extension(file.name).toLowerCase();
     
     if (['.jpg', '.jpeg', '.png', '.gif', '.bmp'].contains(fileExtension)) {
+      final imageFiles = _files.where((f) => ['.jpg', '.jpeg', '.png', '.gif', '.bmp'].contains(p.extension(f.name).toLowerCase())).toList();
+      final imagePaths = imageFiles.map((f) => f.fullPath).toList();
+      final initialIndex = imageFiles.indexOf(file);
+
       Navigator.push(
         context,
         MaterialPageRoute(
           builder: (context) => ImageViewerScreen(
+            imagePaths: imagePaths,
+            initialIndex: initialIndex,
             server: widget.server,
-            imagePath: remotePath,
           ),
         ),
       );

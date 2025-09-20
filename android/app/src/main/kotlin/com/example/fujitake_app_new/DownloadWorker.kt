@@ -2,6 +2,8 @@ package com.example.fujitake_app_new
 
 import android.content.Context
 import android.util.Log
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
@@ -57,21 +59,20 @@ class DownloadWorker(appContext: Context, workerParams: WorkerParameters) : Coro
                     sendDebugLog("File: ${file.name}, Size: $fileSize, New Total Size: $totalSize")
 
                     val relativePath = file.path.substringAfter("smb://$host/$shareName/")
-                    val hashedFileName = sha256(relativePath) + ".png"
+                    val hashedFileName = sha256(relativePath) + ".jpg"
                     val localFile = File(localPathRoot, hashedFileName)
                     localFile.parentFile?.mkdirs()
 
                     sendDebugLog("Downloading ${file.path} to ${localFile.path}")
-                    FileOutputStream(localFile).use { outputStream ->
-                        file.inputStream.use { inputStream ->
-                            val buffer = ByteArray(8192)
-                            var bytesRead: Int
-                            while (inputStream.read(buffer).also { bytesRead = it } != -1) {
-                                outputStream.write(buffer, 0, bytesRead)
-                                downloadedSize += bytesRead
-                                setProgress(workDataOf("progress" to downloadedSize, "total" to totalSize))
-                            }
+                    try {
+                        val bitmap = BitmapFactory.decodeStream(file.inputStream)
+                        FileOutputStream(localFile).use { out ->
+                            bitmap.compress(Bitmap.CompressFormat.JPEG, 80, out)
                         }
+                        downloadedSize += localFile.length()
+                        setProgress(workDataOf("progress" to downloadedSize, "total" to totalSize))
+                    } catch (e: Exception) {
+                        sendDebugLog("Failed to decode or compress image: ${e.message}")
                     }
                     sendDebugLog("Finished downloading ${file.path}")
                 } catch (e: Exception) {

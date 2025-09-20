@@ -138,8 +138,13 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
 
       final isLandscape = _isLandscapeMap[imagePath] ?? false;
       if (isLandscape) {
-        newImagePaths.add('$imagePath-left');
-        newImagePaths.add('$imagePath-right');
+        if (_isReverse) {
+          newImagePaths.add('$imagePath-right');
+          newImagePaths.add('$imagePath-left');
+        } else {
+          newImagePaths.add('$imagePath-left');
+          newImagePaths.add('$imagePath-right');
+        }
         listChanged = true;
       } else {
         newImagePaths.add(imagePath);
@@ -284,6 +289,7 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
       _isReverse = value;
     });
     await _prefs.setBool('isReverse', _isReverse);
+    await _updateDisplayImagePaths();
   }
 
   @override

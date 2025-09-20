@@ -46,6 +46,7 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
   List<String> _displayImagePaths = [];
   bool _isLoading = false; // ローディング状態を管理
   final Map<String, bool> _isLandscapeMap = {};
+  final Map<String, img.Image?> _decodedImageCache = {};
 
   @override
   void initState() {
@@ -187,6 +188,21 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
     final isLeft = imagePathWithSuffix.endsWith('-left');
     final imagePath = imagePathWithSuffix.replaceAll('-left', '').replaceAll('-right', '');
 
+    if (_decodedImageCache.containsKey(imagePath)) {
+      final image = _decodedImageCache[imagePath];
+      if (image != null) {
+        // We need the original bytes for the non-split view.
+        // Let's check the byte cache. If not present, it's an issue with preloading logic.
+        final originalBytes = _imageCache[imagePath];
+        if (originalBytes != null) {
+          return _buildImageView(image, isLeft, originalBytes);
+        }
+        // Fallback if bytes are not in cache for some reason.
+      } else {
+        return const Center(child: Text('画像のデコードに失敗しました。', style: TextStyle(color: Colors.white)));
+      }
+    }
+
     return FutureBuilder<Uint8List>(
       future: _loadImageBytes(imagePath),
       builder: (context, snapshot) {
@@ -212,14 +228,8 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
               } else if (imageSnapshot.hasError) {
                 return const Center(child: Text('画像のデコードに失敗しました。', style: TextStyle(color: Colors.white)));
               } else if (imageSnapshot.hasData) {
-                final image = imageSnapshot.data!;
-                if (_isSplitMode && image.width > image.height) {
-                  final half = isLeft
-                      ? img.copyCrop(image, x: 0, y: 0, width: image.width ~/ 2, height: image.height)
-                      : img.copyCrop(image, x: image.width ~/ 2, y: 0, width: image.width ~/ 2, height: image.height);
-                  return Center(child: Image.memory(Uint8List.fromList(img.encodeJpg(half))));
-                }
-                return Center(child: Image.memory(snapshot.data!));
+                _decodedImageCache[imagePath] = imageSnapshot.data; // デコード結果をキャッシュ
+                return _buildImageView(imageSnapshot.data!, isLeft, snapshot.data!);
               } else {
                 return const Center(child: Text('画像データがありません。', style: TextStyle(color: Colors.white)));
               }
@@ -237,12 +247,37 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
     );
   }
 
+  Widget _buildImageView(img.Image image, bool isLeft, Uint8List originalBytes) {
+    if (_isSplitMode && image.width > image.height) {
+      final half = isLeft
+          ? img.copyCrop(image, x: 0, y: 0, width: image.width ~/ 2, height: image.height)
+          : img.copyCrop(image, x: image.width ~/ 2, y: 0, width: image.width ~/ 2, height: image.height);
+      return Center(child: Image.memory(Uint8List.fromList(img.encodeJpg(half))));
+    }
+    return Center(child: Image.memory(originalBytes));
+  }
+
   Future<void> _preloadImages(int index) async {
+    final pathsToPreload = <String>{};
     if (index > 0) {
-      _loadImageBytes(_displayImagePaths[index - 1]);
+      pathsToPreload.add(_displayImagePaths[index - 1]);
     }
     if (index < _displayImagePaths.length - 1) {
-      _loadImageBytes(_displayImagePaths[index + 1]);
+      pathsToPreload.add(_displayImagePaths[index + 1]);
+    }
+
+    for (final imagePathWithSuffix in pathsToPreload) {
+      final imagePath = imagePathWithSuffix.replaceAll('-left', '').replaceAll('-right', '');
+      if (!_decodedImageCache.containsKey(imagePath)) {
+        try {
+          final bytes = await _loadImageBytes(imagePath);
+          final image = await compute(_decodeImage, bytes.toList());
+          _decodedImageCache[imagePath] = image;
+          DebugLogService().addLog('[_preloadImages] Preloaded and decoded $imagePath');
+        } catch (e) {
+          DebugLogService().addLog('[_preloadImages] Error preloading $imagePath: $e');
+        }
+      }
     }
   }
 

@@ -43,8 +43,8 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
   final Map<String, Uint8List> _imageCache = {};
   bool _isSplitMode = false;
   late SharedPreferences _prefs;
-
   List<String> _displayImagePaths = [];
+  bool _isLoading = false; // ローディング状態を管理
 
   @override
   void initState() {
@@ -57,24 +57,39 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
   }
 
   Future<void> _updateDisplayImagePaths() async {
+    final stopwatch = Stopwatch()..start();
+    DebugLogService().addLog('[updateDisplayImagePaths] Start.');
+    setState(() {
+      _isLoading = true;
+    });
+
     final newImagePaths = <String>[];
     if (_isSplitMode) {
       for (final imagePath in widget.imagePaths) {
-        final bytes = await _loadImageBytes(imagePath);
-        final image = await compute(_decodeImage, bytes.toList());
-        if (image != null && image.width > image.height) {
-          newImagePaths.add('$imagePath-left');
-          newImagePaths.add('$imagePath-right');
-        } else {
-          newImagePaths.add(imagePath);
+        try {
+          final bytes = await _loadImageBytes(imagePath);
+          final image = await compute(_decodeImage, bytes.toList());
+          if (image != null && image.width > image.height) {
+            newImagePaths.add('$imagePath-left');
+            newImagePaths.add('$imagePath-right');
+          } else {
+            newImagePaths.add(imagePath);
+          }
+        } catch (e) {
+          DebugLogService().addLog('[updateDisplayImagePaths] Error processing $imagePath: $e');
+          newImagePaths.add(imagePath); // エラーが発生した場合は元のパスを追加
         }
       }
     } else {
       newImagePaths.addAll(widget.imagePaths);
     }
+
     setState(() {
       _displayImagePaths = newImagePaths;
+      _isLoading = false;
     });
+    stopwatch.stop();
+    DebugLogService().addLog('[updateDisplayImagePaths] Finished in ${stopwatch.elapsedMilliseconds}ms.');
   }
 
   Future<void> _loadPreferences() async {
@@ -93,34 +108,35 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
   }
 
   Future<Uint8List> _loadImageBytes(String imagePath) async {
-    if (_imageCache.containsKey(imagePath)) {
-      return _imageCache[imagePath]!;
+    final stopwatch = Stopwatch()..start();
+    final originalPath = imagePath.replaceAll('-left', '').replaceAll('-right', '');
+
+    if (_imageCache.containsKey(originalPath)) {
+      stopwatch.stop();
+      DebugLogService().addLog('[_loadImageBytes] Load from cache: $originalPath in ${stopwatch.elapsedMilliseconds}ms');
+      return _imageCache[originalPath]!;
     }
 
     if (widget.isLocal) {
-      final localFile = File(imagePath);
+      final localFile = File(originalPath);
       final bytes = await localFile.readAsBytes();
-      _imageCache[imagePath] = bytes;
+      _imageCache[originalPath] = bytes;
+      stopwatch.stop();
+      DebugLogService().addLog('[_loadImageBytes] Load from local: $originalPath in ${stopwatch.elapsedMilliseconds}ms');
       return bytes;
     }
 
-    // 1. キャッシュファイルの存在を確認
-    final localPath = await CachePathService.instance.getLocalPath(widget.server!.id, imagePath);
+    final localPath = await CachePathService.instance.getLocalPath(widget.server!.id, originalPath);
     final localFile = File(localPath);
-    DebugLogService().addLog('[_loadImageBytes] Checking for cache at: "$localPath"');
 
-    final bool fileExists = await localFile.exists();
-    DebugLogService().addLog('[_loadImageBytes] Cache file exists: $fileExists');
-
-    if (fileExists) {
-      // 3. キャッシュが存在する場合
-      print("キャッシュから画像を表示します: $localPath");
+    if (await localFile.exists()) {
       final bytes = await localFile.readAsBytes();
-      _imageCache[imagePath] = bytes;
+      _imageCache[originalPath] = bytes;
+      stopwatch.stop();
+      DebugLogService().addLog('[_loadImageBytes] Load from smb-cache: $originalPath in ${stopwatch.elapsedMilliseconds}ms');
       return bytes;
     } else {
-      // 4. キャッシュが存在しない場合
-      print("リモートから画像を読み込みます: $imagePath");
+      DebugLogService().addLog('[_loadImageBytes] Load from remote: $originalPath');
       const MethodChannel smbChannel = MethodChannel('com.example.fujitake_app_new/smb');
       try {
         final Uint8List imageBytes = await smbChannel.invokeMethod('readFile', {
@@ -128,18 +144,19 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
           'shareName': widget.server!.shareName,
           'username': widget.server!.username,
           'password': widget.server!.password,
-          'path': imagePath,
+          'path': originalPath,
           'domain': widget.server!.domain,
         });
 
-        // 取得した画像をキャッシュに保存
         await localFile.parent.create(recursive: true);
         await localFile.writeAsBytes(imageBytes);
-        print("画像をキャッシュに保存しました: $localPath");
-
-        _imageCache[imagePath] = imageBytes;
+        _imageCache[originalPath] = imageBytes;
+        stopwatch.stop();
+        DebugLogService().addLog('[_loadImageBytes] Load from remote and cache: $originalPath in ${stopwatch.elapsedMilliseconds}ms');
         return imageBytes;
       } on PlatformException catch (e) {
+        stopwatch.stop();
+        DebugLogService().addLog('[_loadImageBytes] Failed to load from remote: ${e.message}');
         throw Exception('Failed to load image bytes: ${e.message}');
       }
     }
@@ -212,7 +229,7 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(p.basename(widget.imagePaths[_currentIndex])),
+        title: Text(_displayImagePaths.isNotEmpty ? p.basename(_displayImagePaths[_currentIndex].replaceAll('-left', '').replaceAll('-right', '')) : ''),
         actions: [
           IconButton(
             icon: const Icon(Icons.swap_horiz),
@@ -263,38 +280,40 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
         ],
       ),
       backgroundColor: Colors.black,
-      body: Column(
-        children: [
-          Expanded(
-            child: PageView.builder(
-              controller: _pageController,
-              itemCount: _displayImagePaths.length,
-              onPageChanged: (index) {
-                setState(() {
-                  _currentIndex = index;
-                });
-                _preloadImages(index);
-              },
-              itemBuilder: (context, index) {
-                return _buildImagePage(_displayImagePaths[index]);
-              },
-            ),
-          ),
-          Container(
-            padding: const EdgeInsets.all(16.0),
-            color: Colors.black.withOpacity(0.5),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : Column(
               children: [
-                Text(
-                  '${_currentIndex + 1} / ${_displayImagePaths.length}',
-                  style: const TextStyle(color: Colors.white, fontSize: 16.0),
+                Expanded(
+                  child: PageView.builder(
+                    controller: _pageController,
+                    itemCount: _displayImagePaths.length,
+                    onPageChanged: (index) {
+                      setState(() {
+                        _currentIndex = index;
+                      });
+                      _preloadImages(index);
+                    },
+                    itemBuilder: (context, index) {
+                      return _buildImagePage(_displayImagePaths[index]);
+                    },
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.all(16.0),
+                  color: Colors.black.withOpacity(0.5),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        '${_currentIndex + 1} / ${_displayImagePaths.length}',
+                        style: const TextStyle(color: Colors.white, fontSize: 16.0),
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),
-          ),
-        ],
-      ),
     );
   }
 }

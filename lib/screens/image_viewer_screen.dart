@@ -98,7 +98,7 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
         title: Text(p.basename(widget.imagePaths[_currentIndex])),
         actions: [
           IconButton(
-            icon: const Icon(Icons.open_in_new),
+            icon: const Icon(Icons.keyboard_tab_rtl),
             onPressed: () {
               // TODO: Implement back action
             },

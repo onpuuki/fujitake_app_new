@@ -57,6 +57,7 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
   bool _isLoading = false; // ローディング状態を管理
   final Map<String, bool> _isLandscapeMap = {};
   final Map<String, img.Image?> _decodedImageCache = {};
+  final Map<String, Uint8List> _splitImageCache = {};
 
   @override
   void initState() {
@@ -195,81 +196,37 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
   }
 
   Widget _buildImagePage(String imagePathWithSuffix) {
-    final isLeft = imagePathWithSuffix.endsWith('-left');
-    final imagePath = imagePathWithSuffix.replaceAll('-left', '').replaceAll('-right', '');
-
-    if (_decodedImageCache.containsKey(imagePath)) {
-      final image = _decodedImageCache[imagePath];
-      if (image != null) {
-        // We need the original bytes for the non-split view.
-        // Let's check the byte cache. If not present, it's an issue with preloading logic.
-        final originalBytes = _imageCache[imagePath];
-        if (originalBytes != null) {
-          return _buildImageView(image, isLeft, originalBytes);
-        }
-        // Fallback if bytes are not in cache for some reason.
-      } else {
-        return const Center(child: Text('画像のデコードに失敗しました。', style: TextStyle(color: Colors.white)));
-      }
+    if (_splitImageCache.containsKey(imagePathWithSuffix)) {
+      return Center(child: Image.memory(_splitImageCache[imagePathWithSuffix]!));
     }
-
+    
+    final imagePath = imagePathWithSuffix.replaceAll('-left', '').replaceAll('-right', '');
+    if (_imageCache.containsKey(imagePath)) {
+      return Center(child: Image.memory(_imageCache[imagePath]!));
+    }
+    
+    // Fallback for non-preloaded images
     return FutureBuilder<Uint8List>(
       future: _loadImageBytes(imagePath),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
         } else if (snapshot.hasError) {
-          return Center(
-            child: Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Text(
-                '画像の読み込みに失敗しました: ${snapshot.error}',
-                style: const TextStyle(color: Colors.white),
-                textAlign: TextAlign.center,
-              ),
-            ),
-          );
+          return Center(child: Text('画像の読み込みに失敗しました: ${snapshot.error}', style: const TextStyle(color: Colors.white)));
         } else if (snapshot.hasData) {
-          return FutureBuilder<img.Image?>(
-            future: compute(_decodeImage, snapshot.data!.toList()),
-            builder: (context, imageSnapshot) {
-              if (imageSnapshot.connectionState == ConnectionState.waiting) {
-                return const Center(child: CircularProgressIndicator());
-              } else if (imageSnapshot.hasError) {
-                return const Center(child: Text('画像のデコードに失敗しました。', style: TextStyle(color: Colors.white)));
-              } else if (imageSnapshot.hasData) {
-                _decodedImageCache[imagePath] = imageSnapshot.data; // デコード結果をキャッシュ
-                return _buildImageView(imageSnapshot.data!, isLeft, snapshot.data!);
-              } else {
-                return const Center(child: Text('画像データがありません。', style: TextStyle(color: Colors.white)));
-              }
-            },
-          );
+          return Center(child: Image.memory(snapshot.data!));
         } else {
-          return const Center(
-            child: Text(
-              '画像データがありません。',
-              style: TextStyle(color: Colors.white),
-            ),
-          );
+          return const Center(child: Text('画像データがありません。', style: TextStyle(color: Colors.white)));
         }
       },
     );
   }
 
   Widget _buildImageView(img.Image image, bool isLeft, Uint8List originalBytes) {
-    if (_isSplitMode && image.width > image.height) {
-      return FutureBuilder<Uint8List>(
-        future: compute(_splitAndEncodeImage, {'image': image, 'isLeft': isLeft}),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.done && snapshot.hasData) {
-            return Center(child: Image.memory(snapshot.data!));
-          }
-          return const Center(child: CircularProgressIndicator());
-        },
-      );
-    }
-    return Center(child: Image.memory(originalBytes));
+    // This function is now potentially redundant. Let's simplify _buildImagePage.
+    // Keeping it for now in case we need to revert or adjust.
+    // The new logic in _buildImagePage should handle everything.
+    return Container();
   }
 
   Future<void> _preloadImages(int index) async {
@@ -283,15 +240,23 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
 
     for (final imagePathWithSuffix in pathsToPreload) {
       final imagePath = imagePathWithSuffix.replaceAll('-left', '').replaceAll('-right', '');
-      if (!_decodedImageCache.containsKey(imagePath)) {
-        try {
-          final bytes = await _loadImageBytes(imagePath);
-          final image = await compute(_decodeImage, bytes.toList());
-          _decodedImageCache[imagePath] = image;
-          DebugLogService().addLog('[_preloadImages] Preloaded and decoded $imagePath');
-        } catch (e) {
-          DebugLogService().addLog('[_preloadImages] Error preloading $imagePath: $e');
+      if (_decodedImageCache.containsKey(imagePath)) continue;
+
+      try {
+        final bytes = await _loadImageBytes(imagePath);
+        final image = await compute(_decodeImage, bytes.toList());
+        _decodedImageCache[imagePath] = image;
+        DebugLogService().addLog('[_preloadImages] Preloaded and decoded $imagePath');
+
+        if (image != null && image.width > image.height) {
+          final leftHalfBytes = await compute(_splitAndEncodeImage, {'image': image, 'isLeft': true});
+          _splitImageCache['$imagePath-left'] = leftHalfBytes;
+          final rightHalfBytes = await compute(_splitAndEncodeImage, {'image': image, 'isLeft': false});
+          _splitImageCache['$imagePath-right'] = rightHalfBytes;
+          DebugLogService().addLog('[_preloadImages] Pre-split and cached landscape image $imagePath');
         }
+      } catch (e) {
+        DebugLogService().addLog('[_preloadImages] Error preloading $imagePath: $e');
       }
     }
   }

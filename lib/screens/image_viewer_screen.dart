@@ -86,6 +86,7 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
       for (int i = 0; i < widget.imagePaths.length; i++) {
         final imagePath = widget.imagePaths[i];
         futures.add(() async {
+          final stopwatch = Stopwatch()..start();
           try {
             bool isLandscape;
             if (_isLandscapeMap.containsKey(imagePath)) {
@@ -105,6 +106,9 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
             }
           } catch (e) {
             imagePathResults[i * 2] = imagePath;
+          } finally {
+            stopwatch.stop();
+            DebugLogService().addLog('[_updateDisplayImagePaths] Processed $imagePath in ${stopwatch.elapsedMilliseconds}ms.');
           }
         }());
       }
@@ -154,25 +158,27 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
   }
 
   Future<Uint8List> _loadImageBytes(String imagePath) async {
+    final stopwatch = Stopwatch()..start();
     final originalPath = imagePath.replaceAll('-left', '').replaceAll('-right', '');
-    if (_imageCache.containsKey(originalPath)) {
-      return _imageCache[originalPath]!;
-    }
-    if (widget.isLocal) {
-      final localFile = File(originalPath);
-      final bytes = await localFile.readAsBytes();
-      _imageCache[originalPath] = bytes;
-      return bytes;
-    }
-    final localPath = await CachePathService.instance.getLocalPath(widget.server!.id, originalPath);
-    final localFile = File(localPath);
-    if (await localFile.exists()) {
-      final bytes = await localFile.readAsBytes();
-      _imageCache[originalPath] = bytes;
-      return bytes;
-    } else {
-      const MethodChannel smbChannel = MethodChannel('com.example.fujitake_app_new/smb');
-      try {
+    try {
+      if (_imageCache.containsKey(originalPath)) {
+        DebugLogService().addLog('[_loadImageBytes] Load from cache: $originalPath');
+        return _imageCache[originalPath]!;
+      }
+      if (widget.isLocal) {
+        final localFile = File(originalPath);
+        final bytes = await localFile.readAsBytes();
+        _imageCache[originalPath] = bytes;
+        return bytes;
+      }
+      final localPath = await CachePathService.instance.getLocalPath(widget.server!.id, originalPath);
+      final localFile = File(localPath);
+      if (await localFile.exists()) {
+        final bytes = await localFile.readAsBytes();
+        _imageCache[originalPath] = bytes;
+        return bytes;
+      } else {
+        const MethodChannel smbChannel = MethodChannel('com.example.fujitake_app_new/smb');
         final Uint8List imageBytes = await smbChannel.invokeMethod('readFile', {
           'host': widget.server!.host,
           'shareName': widget.server!.shareName,
@@ -185,44 +191,52 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
         await localFile.writeAsBytes(imageBytes);
         _imageCache[originalPath] = imageBytes;
         return imageBytes;
-      } on PlatformException catch (e) {
-        throw Exception('Failed to load image bytes: ${e.message}');
       }
+    } finally {
+      stopwatch.stop();
+      DebugLogService().addLog('[_loadImageBytes] Loaded $originalPath in ${stopwatch.elapsedMilliseconds}ms.');
     }
   }
 
   Future<Uint8List> _getImage(String imagePathWithSuffix) async {
-    if (_splitImageCache.containsKey(imagePathWithSuffix)) {
-      return _splitImageCache[imagePathWithSuffix]!;
-    }
-    if (!_isSplitMode) {
-      return _loadImageBytes(imagePathWithSuffix);
-    }
-    final future = _imageProcessingFutures[imagePathWithSuffix];
-    if (future != null) {
-      await future;
+    final stopwatch = Stopwatch()..start();
+    try {
       if (_splitImageCache.containsKey(imagePathWithSuffix)) {
+        DebugLogService().addLog('[_getImage] Load from split cache: $imagePathWithSuffix');
         return _splitImageCache[imagePathWithSuffix]!;
       }
-    }
-    final completer = Completer<void>();
-    _imageProcessingFutures[imagePathWithSuffix] = completer.future;
-    try {
-      final imagePath = imagePathWithSuffix.replaceAll('-left', '').replaceAll('-right', '');
-      final bytes = await _loadImageBytes(imagePath);
-      final image = await compute(_decodeImage, bytes.toList());
-      if (image != null && image.width > image.height) {
-        final isLeft = imagePathWithSuffix.endsWith('-left');
-        final halfBytes = await compute(_splitAndEncodeImage, {'image': image, 'isLeft': isLeft});
-        _splitImageCache[imagePathWithSuffix] = halfBytes;
-        return halfBytes;
-      } else {
-        _splitImageCache[imagePathWithSuffix] = bytes;
-        return bytes;
+      if (!_isSplitMode) {
+        return _loadImageBytes(imagePathWithSuffix);
+      }
+      final future = _imageProcessingFutures[imagePathWithSuffix];
+      if (future != null) {
+        await future;
+        if (_splitImageCache.containsKey(imagePathWithSuffix)) {
+          return _splitImageCache[imagePathWithSuffix]!;
+        }
+      }
+      final completer = Completer<void>();
+      _imageProcessingFutures[imagePathWithSuffix] = completer.future;
+      try {
+        final imagePath = imagePathWithSuffix.replaceAll('-left', '').replaceAll('-right', '');
+        final bytes = await _loadImageBytes(imagePath);
+        final image = await compute(_decodeImage, bytes.toList());
+        if (image != null && image.width > image.height) {
+          final isLeft = imagePathWithSuffix.endsWith('-left');
+          final halfBytes = await compute(_splitAndEncodeImage, {'image': image, 'isLeft': isLeft});
+          _splitImageCache[imagePathWithSuffix] = halfBytes;
+          return halfBytes;
+        } else {
+          _splitImageCache[imagePathWithSuffix] = bytes;
+          return bytes;
+        }
+      } finally {
+        completer.complete();
+        _imageProcessingFutures.remove(imagePathWithSuffix);
       }
     } finally {
-      completer.complete();
-      _imageProcessingFutures.remove(imagePathWithSuffix);
+      stopwatch.stop();
+      DebugLogService().addLog('[_getImage] Processed $imagePathWithSuffix in ${stopwatch.elapsedMilliseconds}ms.');
     }
   }
 

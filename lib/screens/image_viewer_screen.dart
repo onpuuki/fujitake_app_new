@@ -328,29 +328,32 @@ class _ImagePageWidgetState extends State<_ImagePageWidget> {
   }
 
   Future<void> _initialize() async {
-    DebugLogService().addLog('[_ImagePageWidget] _initialize START for page: ${widget.page.path}');
-    _imageBytes = await widget.imageBytesFuture;
-    final image = await decodeImageFromList(_imageBytes!);
-    final imageInfo = ImageInfo(image: image);
-    DebugLogService().addLog('[_ImagePageWidget] Image decoded: ${imageInfo.image.width}x${imageInfo.image.height}');
+    try {
+      DebugLogService().addLog('[_ImagePageWidget] _initialize START for page: ${widget.page.path}');
+      _imageBytes = await widget.imageBytesFuture;
+      final image = await decodeImageFromList(_imageBytes!);
+      final imageInfo = ImageInfo(image: image);
+      DebugLogService().addLog('[_ImagePageWidget] Image decoded: ${imageInfo.image.width}x${imageInfo.image.height}');
 
+      if (widget.page.type != PageType.single) {
+        final scale = widget.screenSize.height / imageInfo.image.height;
+        final scaledImageWidth = imageInfo.image.width * scale;
+        final xOffset = widget.page.type == PageType.right ? -scaledImageWidth / 2 : 0;
+        DebugLogService().addLog('[_ImagePageWidget] Split view params: scale=$scale, xOffset=$xOffset');
 
-    if (widget.page.type != PageType.single) {
-      final scale = widget.screenSize.height / imageInfo.image.height;
-      final scaledImageWidth = imageInfo.image.width * scale;
-      final xOffset = widget.page.type == PageType.right ? -scaledImageWidth / 2 : 0;
-      DebugLogService().addLog('[_ImagePageWidget] Split view params: scale=$scale, xOffset=$xOffset');
+        // Use a more direct way to create the matrix to avoid potential bugs in cascade operators.
+        final matrix = Matrix4.diagonal3Values(scale, scale, 1.0)
+          ..setTranslationRaw(xOffset, 0, 0);
+        _transformationController = TransformationController(matrix);
 
-      _transformationController = TransformationController(
-        Matrix4.identity()
-          ..translate(xOffset, 0.0)
-          ..scale(scale),
-      );
-    } else {
-      DebugLogService().addLog('[_ImagePageWidget] Single view');
-      _transformationController = TransformationController();
+      } else {
+        DebugLogService().addLog('[_ImagePageWidget] Single view');
+        _transformationController = TransformationController();
+      }
+      DebugLogService().addLog('[_ImagePageWidget] _initialize END for page: ${widget.page.path}');
+    } catch (e, s) {
+      DebugLogService().addLog('[_ImagePageWidget] _initialize CRITICAL ERROR: $e, stackTrace: $s');
     }
-    DebugLogService().addLog('[_ImagePageWidget] _initialize END for page: ${widget.page.path}');
   }
 
   @override

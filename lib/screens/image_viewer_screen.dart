@@ -347,25 +347,15 @@ class _ImagePageWidgetState extends State<_ImagePageWidget> {
       final screenSize = widget.screenSize;
       final isSplitPage = widget.page.type != PageType.single;
 
-      // 基準となる単一表示のスケールとオフセットを計算
-      final singleImageScale = min(screenSize.width / image.width, screenSize.height / image.height);
-      final singleImageVerticalOffset = (screenSize.height - (image.height * singleImageScale)) / 2;
+      final fixedVerticalOffset = 50.0; // 約1cmのオフセット
+      final scale = isSplitPage
+          ? min(screenSize.width / (image.width / 2), screenSize.height / image.height)
+          : min(screenSize.width / image.width, screenSize.height / image.height);
 
-      if (isSplitPage) {
-        // 分割表示用のスケールを計算
-        final splitImageScale = min(screenSize.width / (image.width / 2), screenSize.height / image.height);
-        // オフセットは単一表示のものを使用し、スケールは分割表示のものを使用
-        final initialMatrix = Matrix4.identity()
-          ..translate(0.0, singleImageVerticalOffset > 0 ? singleImageVerticalOffset : 0.0)
-          ..scale(splitImageScale);
-        _transformationController = TransformationController(initialMatrix);
-      } else {
-        // 単一表示
-        final initialMatrix = Matrix4.identity()
-          ..translate(0.0, singleImageVerticalOffset > 0 ? singleImageVerticalOffset : 0.0)
-          ..scale(singleImageScale);
-        _transformationController = TransformationController(initialMatrix);
-      }
+      final initialMatrix = Matrix4.identity()
+        ..translate(0.0, fixedVerticalOffset)
+        ..scale(scale);
+      _transformationController = TransformationController(initialMatrix);
 
       DebugLogService().addLog('[_ImagePageWidget] _initialize END for page: ${widget.page.path}');
     } catch (e, s) {

@@ -16,6 +16,17 @@ class DisplayPage {
   final PageType type;
 
   DisplayPage({required this.path, required this.type});
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is DisplayPage &&
+          runtimeType == other.runtimeType &&
+          path == other.path &&
+          type == other.type;
+
+  @override
+  int get hashCode => path.hashCode ^ type.hashCode;
 }
 
 class ImageViewerScreen extends StatefulWidget {

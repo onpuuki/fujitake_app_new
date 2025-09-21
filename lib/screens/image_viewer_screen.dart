@@ -369,11 +369,8 @@ class _ImagePageWidgetState extends State<_ImagePageWidget> {
             transformationController: _transformationController,
             minScale: 0.1,
             maxScale: 4.0,
-            child: Center(
-              child: Image.memory(
-                _imageBytes!,
-                fit: BoxFit.contain,
-              ),
+            child: Image.memory(
+              _imageBytes!,
             ),
           );
         } else {

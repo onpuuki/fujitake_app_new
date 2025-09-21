@@ -321,23 +321,23 @@ class _ImagePageWidgetState extends State<_ImagePageWidget> {
   @override
   void initState() {
     super.initState();
-    DebugLogService.add('[_ImagePageWidget] initState for page: ${widget.page.path}');
+    DebugLogService().addLog('[_ImagePageWidget] initState for page: ${widget.page.path}');
     _initializationFuture = _initialize();
   }
 
   Future<void> _initialize() async {
-    DebugLogService.add('[_ImagePageWidget] _initialize START for page: ${widget.page.path}');
+    DebugLogService().addLog('[_ImagePageWidget] _initialize START for page: ${widget.page.path}');
     _imageBytes = await widget.imageBytesFuture;
     final image = await decodeImageFromList(_imageBytes!);
     final imageInfo = ImageInfo(image: image);
-    DebugLogService.add('[_ImagePageWidget] Image decoded: ${imageInfo.image.width}x${imageInfo.image.height}');
+    DebugLogService().addLog('[_ImagePageWidget] Image decoded: ${imageInfo.image.width}x${imageInfo.image.height}');
 
 
     if (widget.page.type != PageType.single) {
       final scale = widget.screenSize.height / imageInfo.image.height;
       final scaledImageWidth = imageInfo.image.width * scale;
       final xOffset = widget.page.type == PageType.right ? -scaledImageWidth / 2 : 0;
-      DebugLogService.add('[_ImagePageWidget] Split view params: scale=$scale, xOffset=$xOffset');
+      DebugLogService().addLog('[_ImagePageWidget] Split view params: scale=$scale, xOffset=$xOffset');
 
       _transformationController = TransformationController(
         Matrix4.identity()
@@ -345,21 +345,21 @@ class _ImagePageWidgetState extends State<_ImagePageWidget> {
           ..scale(scale),
       );
     } else {
-      DebugLogService.add('[_ImagePageWidget] Single view');
+      DebugLogService().addLog('[_ImagePageWidget] Single view');
       _transformationController = TransformationController();
     }
-    DebugLogService.add('[_ImagePageWidget] _initialize END for page: ${widget.page.path}');
+    DebugLogService().addLog('[_ImagePageWidget] _initialize END for page: ${widget.page.path}');
   }
 
   @override
   Widget build(BuildContext context) {
-    DebugLogService.add('[_ImagePageWidget] build for page: ${widget.page.path}');
+    DebugLogService().addLog('[_ImagePageWidget] build for page: ${widget.page.path}');
     return FutureBuilder<void>(
       future: _initializationFuture,
       builder: (context, snapshot) {
-        DebugLogService.add('[_ImagePageWidget] FutureBuilder builder: state=${snapshot.connectionState}');
+        DebugLogService().addLog('[_ImagePageWidget] FutureBuilder builder: state=${snapshot.connectionState}');
         if (snapshot.connectionState == ConnectionState.done && _transformationController != null) {
-          DebugLogService.add('[_ImagePageWidget] Building InteractiveViewer');
+          DebugLogService().addLog('[_ImagePageWidget] Building InteractiveViewer');
           return InteractiveViewer(
             transformationController: _transformationController,
             minScale: 0.1,
@@ -373,9 +373,9 @@ class _ImagePageWidgetState extends State<_ImagePageWidget> {
           );
         } else {
           if (snapshot.hasError) {
-            DebugLogService.add('[_ImagePageWidget] FutureBuilder error: ${snapshot.error}');
+            DebugLogService().addLog('[_ImagePageWidget] FutureBuilder error: ${snapshot.error}');
           }
-          DebugLogService.add('[_ImagePageWidget] Building CircularProgressIndicator');
+          DebugLogService().addLog('[_ImagePageWidget] Building CircularProgressIndicator');
           return const Center(child: CircularProgressIndicator());
         }
       },

@@ -328,82 +328,53 @@ class _ImagePageWidget extends StatefulWidget {
 }
 
 class _ImagePageWidgetState extends State<_ImagePageWidget> {
-  late final Future<void> _initializationFuture;
-  TransformationController? _transformationController;
+  late TransformationController _transformationController;
   Uint8List? _imageBytes;
 
   @override
   void initState() {
     super.initState();
-    DebugLogService().addLog('[_ImagePageWidget] initState for page: ${widget.page.path}, type: ${widget.page.type}');
-    _initializationFuture = _initialize();
+    _transformationController = TransformationController();
+    _loadImage();
   }
 
-  Future<void> _initialize() async {
-    try {
-      DebugLogService().addLog('[_ImagePageWidget] _initialize START for page: ${widget.page.path}');
-      _imageBytes = await widget.imageBytesFuture;
-      final image = await decodeImageFromList(_imageBytes!);
-      final screenSize = widget.screenSize;
-      final isSplitPage = widget.page.type != PageType.single;
-
-      final fixedVerticalOffset = 50.0; // 約1cmのオフセット
-      final scale = isSplitPage
-          ? min(screenSize.width / (image.width / 2), screenSize.height / image.height)
-          : min(screenSize.width / image.width, screenSize.height / image.height);
-
-      final initialMatrix = Matrix4.identity()
-        ..translate(0.0, fixedVerticalOffset)
-        ..scale(scale);
-      _transformationController = TransformationController(initialMatrix);
-
-      DebugLogService().addLog('[_ImagePageWidget] _initialize END for page: ${widget.page.path}');
-    } catch (e, s) {
-      DebugLogService().addLog('[_ImagePageWidget] _initialize CRITICAL ERROR: $e, stackTrace: $s');
+  Future<void> _loadImage() async {
+    _imageBytes = await widget.imageBytesFuture;
+    if (mounted) {
+      setState(() {});
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    DebugLogService().addLog('[_ImagePageWidget] build for page: ${widget.page.path}');
+    Widget imageWidget;
+    if (_imageBytes == null) {
+      imageWidget = const Center(child: CircularProgressIndicator());
+    } else {
+      imageWidget = Image.memory(_imageBytes!);
+      final isSplitPage = widget.page.type != PageType.single;
 
-    return FutureBuilder<void>(
-      future: _initializationFuture,
-      builder: (context, snapshot) {
-        DebugLogService().addLog('[_ImagePageWidget] FutureBuilder builder: state=${snapshot.connectionState}');
-        if (snapshot.connectionState == ConnectionState.done && _transformationController != null) {
-          DebugLogService().addLog('[_ImagePageWidget] Building InteractiveViewer for page type: ${widget.page.type}');
-          
-          Widget imageWidget = Image.memory(_imageBytes!);
-          final isSplitPage = widget.page.type != PageType.single;
-
-          if (isSplitPage) {
-            DebugLogService().addLog('[_ImagePageWidget] Applying ClipRect for split view');
-            imageWidget = ClipRect(
-              child: Align(
-                alignment: widget.page.type == PageType.left ? Alignment.centerLeft : Alignment.centerRight,
-                widthFactor: 0.5,
-                child: imageWidget,
-              ),
-            );
-          }
-
-          return InteractiveViewer(
-            transformationController: _transformationController,
-            minScale: 0.1,
-            maxScale: 4.0,
-            constrained: false, // Set to false to allow custom positioning
-            boundaryMargin: const EdgeInsets.all(double.infinity),
+      if (isSplitPage) {
+        imageWidget = ClipRect(
+          child: Align(
+            alignment: widget.page.type == PageType.left ? Alignment.centerLeft : Alignment.centerRight,
+            widthFactor: 0.5,
             child: imageWidget,
-          );
-        } else {
-          if (snapshot.hasError) {
-            DebugLogService().addLog('[_ImagePageWidget] FutureBuilder error: ${snapshot.error}, stackTrace: ${snapshot.stackTrace}');
-          }
-          DebugLogService().addLog('[_ImagePageWidget] Building CircularProgressIndicator');
-          return const Center(child: CircularProgressIndicator());
-        }
+          ),
+        );
+      }
+    }
+
+    return GestureDetector(
+      onDoubleTap: () {
+        _transformationController.value = Matrix4.identity();
       },
+      child: InteractiveViewer(
+        transformationController: _transformationController,
+        minScale: 0.1,
+        maxScale: 4.0,
+        child: imageWidget,
+      ),
     );
   }
 }

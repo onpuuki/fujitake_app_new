@@ -377,7 +377,7 @@ class _ImagePageWidgetState extends State<_ImagePageWidget> {
             transformationController: _transformationController,
             minScale: 0.1,
             maxScale: 4.0,
-            child: Center(child: imageWidget),
+            child: imageWidget,
           );
         } else {
           if (snapshot.hasError) {

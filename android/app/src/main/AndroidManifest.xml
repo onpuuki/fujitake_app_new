@@ -3,6 +3,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <!-- ギャラリーからの画像選択とカメラ使用のための権限 -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29" />
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
     <uses-permission android:name="android.permission.CAMERA"/>
@@ -39,6 +40,7 @@
                  while the Flutter UI initializes. After that, this theme
                  disappears and the Flutter UI shows. -->
             <meta-data
+
               android:name="io.flutter.embedding.android.NormalTheme"
               android:resource="@style/NormalTheme"
               />
@@ -48,16 +50,19 @@
             </intent-filter>
             <!-- 共有インテントを受け取るための設定 -->
             <intent-filter>
+
                 <action android:name="android.intent.action.SEND" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:mimeType="text/plain" />
             </intent-filter>
             <intent-filter>
+
                 <action android:name="android.intent.action.SEND_MULTIPLE" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:mimeType="text/plain" />
             </intent-filter>
             <!-- 画像の共有を受け取る場合 -->
+
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -69,6 +74,7 @@
                 <data android:mimeType="image/*" />
             </intent-filter>
         </activity>
+        <service android:name=".VideoPlaybackService" />
 
         <service
             android:name="com.pravera.flutter_foreground_task.service.ForegroundService"

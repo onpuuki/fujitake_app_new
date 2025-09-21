@@ -34,10 +34,12 @@ class _VideoViewerScreenState extends State<VideoViewerScreen> {
 
   final MethodChannel _smbChannel = const MethodChannel('com.example.fujitake_app_new/smb');
 
+  final MethodChannel _videoPlaybackChannel = const MethodChannel('com.example.fujitake_app_new/video_playback');
   @override
   void initState() {
     super.initState();
     _smbChannel.setMethodCallHandler(_handleMethodCalls);
+    _videoPlaybackChannel.invokeMethod('startVideoPlaybackService');
     _initializePlayer();
   }
 
@@ -174,7 +176,9 @@ class _VideoViewerScreenState extends State<VideoViewerScreen> {
     _controlsTimer?.cancel();
     if (widget.videoPath != null) {
       _smbChannel.invokeMethod('stopStreaming', {'fileName': p.basename(widget.videoPath!)});
+
     }
+    _videoPlaybackChannel.invokeMethod('stopVideoPlaybackService');
     _controller?.dispose();
     SystemChrome.setPreferredOrientations([
       DeviceOrientation.portraitUp,

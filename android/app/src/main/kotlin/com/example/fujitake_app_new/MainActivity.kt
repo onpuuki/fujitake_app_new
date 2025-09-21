@@ -142,9 +142,32 @@ class MainActivity : FlutterActivity() {
                 "startStreaming" -> handleStartStreaming(call, result)
                 "stopStreaming" -> handleStopStreaming(call, result)
                 "copy" -> handleCopyFile(call, result)
+                "startVideoPlaybackService" -> {
+                    startVideoPlaybackService()
+                    result.success(null)
+                }
+                "stopVideoPlaybackService" -> {
+                    stopVideoPlaybackService()
+                    result.success(null)
+                }
                 else -> result.notImplemented()
             }
         }
+    }
+
+
+    private fun startVideoPlaybackService() {
+        val serviceIntent = Intent(this, VideoPlaybackService::class.java)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(serviceIntent)
+        } else {
+            startService(serviceIntent)
+        }
+    }
+
+    private fun stopVideoPlaybackService() {
+        val serviceIntent = Intent(this, VideoPlaybackService::class.java)
+        stopService(serviceIntent)
     }
 
     private fun handleDownloadFile(call: MethodCall, result: MethodChannel.Result) {
@@ -520,6 +543,7 @@ class MainActivity : FlutterActivity() {
                         } else {
                             allFiles.add(mapOf(
                                 "name" to file.name.removeSuffix("/"),
+
                                 "isDirectory" to file.isDirectory,
                                 "size" to file.length(),
                                 "lastModified" to file.lastModified,
@@ -648,4 +672,5 @@ class WebServer(private val smbFile: SmbFile, private val log: (String) -> Unit,
             return newFixedLengthResponse(Response.Status.INTERNAL_ERROR, MIME_PLAINTEXT, "Error: ${e.message}")
         }
     }
+
 }

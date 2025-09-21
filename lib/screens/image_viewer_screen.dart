@@ -305,24 +305,33 @@ class _ImagePageWidget extends StatefulWidget {
 }
 
 class _ImagePageWidgetState extends State<_ImagePageWidget> {
+  late final Future<void> _initializationFuture;
   TransformationController? _transformationController;
   Uint8List? _imageBytes;
 
   @override
   void initState() {
     super.initState();
+    print('[_ImagePageWidget] initState for page: ${widget.page.path}');
+    _initializationFuture = _initialize();
   }
 
   Future<void> _initialize() async {
+    print('[_ImagePageWidget] _initialize START for page: ${widget.page.path}');
     _imageBytes = await widget.imageBytesFuture;
     final image = await decodeImageFromList(_imageBytes!);
     final imageInfo = ImageInfo(image: image);
+    print('[_ImagePageWidget] Image decoded: ${imageInfo.image.width}x${imageInfo.image.height}');
+
 
     if (widget.page.type != PageType.single) {
+      // This context is safe because _initialize is called from initState,
+      // which is called after the widget is mounted.
       final screenSize = MediaQuery.of(context).size;
       final scale = screenSize.height / imageInfo.image.height;
       final scaledImageWidth = imageInfo.image.width * scale;
       final xOffset = widget.page.type == PageType.right ? -scaledImageWidth / 2 : 0;
+      print('[_ImagePageWidget] Split view params: scale=$scale, xOffset=$xOffset');
 
       _transformationController = TransformationController(
         Matrix4.identity()
@@ -330,16 +339,21 @@ class _ImagePageWidgetState extends State<_ImagePageWidget> {
           ..scale(scale),
       );
     } else {
+      print('[_ImagePageWidget] Single view');
       _transformationController = TransformationController();
     }
+    print('[_ImagePageWidget] _initialize END for page: ${widget.page.path}');
   }
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder(
-      future: _initialize(),
+    print('[_ImagePageWidget] build for page: ${widget.page.path}');
+    return FutureBuilder<void>(
+      future: _initializationFuture,
       builder: (context, snapshot) {
+        print('[_ImagePageWidget] FutureBuilder builder: state=${snapshot.connectionState}');
         if (snapshot.connectionState == ConnectionState.done && _transformationController != null) {
+          print('[_ImagePageWidget] Building InteractiveViewer');
           return InteractiveViewer(
             transformationController: _transformationController,
             minScale: 0.1,
@@ -352,6 +366,10 @@ class _ImagePageWidgetState extends State<_ImagePageWidget> {
             ),
           );
         } else {
+          if (snapshot.hasError) {
+            print('[_ImagePageWidget] FutureBuilder error: ${snapshot.error}');
+          }
+          print('[_ImagePageWidget] Building CircularProgressIndicator');
           return const Center(child: CircularProgressIndicator());
         }
       },

@@ -163,50 +163,9 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
 
 
   Widget _buildImagePage(DisplayPage page) {
-    return FutureBuilder<Uint8List>(
-      future: _loadImageBytes(page.path),
-      builder: (context, snapshot) async {
-        if (snapshot.connectionState == ConnectionState.done && snapshot.hasData) {
-          final imageBytes = snapshot.data!;
-          final transformationController = TransformationController();
-
-          if (page.type != PageType.single) {
-            // For split pages, we need to calculate the initial matrix to show
-            // only the left or right half of the image.
-            // This assumes the image is wider than the screen.
-            final screenSize = MediaQuery.of(context).size;
-            final imageInfo = await decodeImageFromList(imageBytes);
-            
-            // Assuming the image is scaled to fit the height of the screen.
-            final scale = screenSize.height / imageInfo.height;
-            final scaledImageWidth = imageInfo.width * scale;
-            
-            // The offset to show the right half of the image.
-            // The left half will have an offset of 0.
-            final xOffset = page.type == PageType.right ? -scaledImageWidth / 2 : 0;
-
-            transformationController.value = Matrix4.identity()
-              ..translate(xOffset, 0.0)
-              ..scale(scale);
-          }
-
-          return InteractiveViewer(
-            transformationController: transformationController,
-            minScale: 0.1,
-            maxScale: 4.0,
-            child: Center(
-              child: Image.memory(
-                imageBytes,
-                fit: BoxFit.contain,
-              ),
-            ),
-          );
-        } else if (snapshot.hasError) {
-          return Center(child: Text('Error: ${snapshot.error}'));
-        } else {
-          return const Center(child: CircularProgressIndicator());
-        }
-      },
+    return _ImagePageWidget(
+      page: page,
+      imageBytesFuture: _loadImageBytes(page.path),
     );
   }
 
@@ -330,6 +289,79 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
                 ),
               ],
             ),
+    );
+  }
+}
+
+class _ImagePageWidget extends StatefulWidget {
+  final DisplayPage page;
+  final Future<Uint8List> imageBytesFuture;
+
+  const _ImagePageWidget({required this.page, required this.imageBytesFuture});
+
+  @override
+  _ImagePageWidgetState createState() => _ImagePageWidgetState();
+}
+
+class _ImagePageWidgetState extends State<_ImagePageWidget> {
+  TransformationController? _transformationController;
+  ImageInfo? _imageInfo;
+
+  @override
+  void initState() {
+    super.initState();
+    _initialize();
+  }
+
+  Future<void> _initialize() async {
+    final imageBytes = await widget.imageBytesFuture;
+    final imageInfo = await decodeImageFromList(imageBytes);
+
+    if (mounted) {
+      setState(() {
+        _imageInfo = imageInfo;
+        if (widget.page.type != PageType.single) {
+          final screenSize = MediaQuery.of(context).size;
+          final scale = screenSize.height / _imageInfo!.image.height;
+          final scaledImageWidth = _imageInfo!.image.width * scale;
+          final xOffset = widget.page.type == PageType.right ? -scaledImageWidth / 2 : 0;
+
+          _transformationController = TransformationController(
+            Matrix4.identity()
+              ..translate(xOffset, 0.0)
+              ..scale(scale),
+          );
+        } else {
+          _transformationController = TransformationController();
+        }
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_transformationController == null) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    return InteractiveViewer(
+      transformationController: _transformationController,
+      minScale: 0.1,
+      maxScale: 4.0,
+      child: Center(
+        child: FutureBuilder<Uint8List>(
+          future: widget.imageBytesFuture,
+          builder: (context, snapshot) {
+            if (snapshot.hasData) {
+              return Image.memory(
+                snapshot.data!,
+                fit: BoxFit.contain,
+              );
+            }
+            return const SizedBox.shrink();
+          },
+        ),
+      ),
     );
   }
 }

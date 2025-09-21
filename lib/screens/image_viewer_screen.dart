@@ -323,7 +323,7 @@ class _ImagePageWidgetState extends State<_ImagePageWidget> {
   @override
   void initState() {
     super.initState();
-    DebugLogService().addLog('[_ImagePageWidget] initState for page: ${widget.page.path}');
+    DebugLogService().addLog('[_ImagePageWidget] initState for page: ${widget.page.path}, type: ${widget.page.type}');
     _initializationFuture = _initialize();
   }
 
@@ -347,11 +347,12 @@ class _ImagePageWidgetState extends State<_ImagePageWidget> {
       builder: (context, snapshot) {
         DebugLogService().addLog('[_ImagePageWidget] FutureBuilder builder: state=${snapshot.connectionState}');
         if (snapshot.connectionState == ConnectionState.done && _transformationController != null) {
-          DebugLogService().addLog('[_ImagePageWidget] Building InteractiveViewer');
+          DebugLogService().addLog('[_ImagePageWidget] Building InteractiveViewer for page type: ${widget.page.type}');
           
           Widget imageWidget = Image.memory(_imageBytes!);
 
           if (widget.page.type != PageType.single) {
+            DebugLogService().addLog('[_ImagePageWidget] Applying ClipRect for split view');
             imageWidget = ClipRect(
               child: Align(
                 alignment: widget.page.type == PageType.left ? Alignment.centerLeft : Alignment.centerRight,

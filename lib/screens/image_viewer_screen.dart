@@ -319,7 +319,6 @@ class _ImagePageWidgetState extends State<_ImagePageWidget> {
   late final Future<void> _initializationFuture;
   TransformationController? _transformationController;
   Uint8List? _imageBytes;
-  bool _isLandscape = false;
 
   @override
   void initState() {
@@ -331,31 +330,8 @@ class _ImagePageWidgetState extends State<_ImagePageWidget> {
   Future<void> _initialize() async {
     try {
       DebugLogService().addLog('[_ImagePageWidget] _initialize START for page: ${widget.page.path}');
-      DebugLogService().addLog('[_ImagePageWidget] screenSize: ${widget.screenSize}');
       _imageBytes = await widget.imageBytesFuture;
-      final image = await decodeImageFromList(_imageBytes!);
-      final imageInfo = ImageInfo(image: image);
-      DebugLogService().addLog('[_ImagePageWidget] Image decoded: ${imageInfo.image.width}x${imageInfo.image.height}');
-      _isLandscape = imageInfo.image.width > imageInfo.image.height;
-      DebugLogService().addLog('[_ImagePageWidget] isLandscape: $_isLandscape');
-
-      if (widget.page.type != PageType.single) {
-        final scale = widget.screenSize.height / imageInfo.image.height;
-        final scaledImageWidth = imageInfo.image.width * scale;
-        DebugLogService().addLog('[_ImagePageWidget] scaledImageWidth: $scaledImageWidth');
-        final xOffset = widget.page.type == PageType.right ? -scaledImageWidth / 2 : 0;
-        DebugLogService().addLog('[_ImagePageWidget] Split view params: scale=$scale, xOffset=$xOffset');
-
-        // Use a more direct way to create the matrix to avoid potential bugs in cascade operators.
-        final matrix = Matrix4.diagonal3Values(scale, scale, 1.0)
-          ..setTranslationRaw(xOffset.toDouble(), 0, 0);
-        DebugLogService().addLog('[_ImagePageWidget] Matrix: ${matrix.toString()}');
-        _transformationController = TransformationController(matrix);
-
-      } else {
-        DebugLogService().addLog('[_ImagePageWidget] Single view');
-        _transformationController = TransformationController();
-      }
+      _transformationController = TransformationController();
       DebugLogService().addLog('[_ImagePageWidget] _initialize END for page: ${widget.page.path}');
     } catch (e, s) {
       DebugLogService().addLog('[_ImagePageWidget] _initialize CRITICAL ERROR: $e, stackTrace: $s');
@@ -365,23 +341,31 @@ class _ImagePageWidgetState extends State<_ImagePageWidget> {
   @override
   Widget build(BuildContext context) {
     DebugLogService().addLog('[_ImagePageWidget] build for page: ${widget.page.path}');
+
     return FutureBuilder<void>(
       future: _initializationFuture,
       builder: (context, snapshot) {
         DebugLogService().addLog('[_ImagePageWidget] FutureBuilder builder: state=${snapshot.connectionState}');
         if (snapshot.connectionState == ConnectionState.done && _transformationController != null) {
           DebugLogService().addLog('[_ImagePageWidget] Building InteractiveViewer');
+          
+          Widget imageWidget = Image.memory(_imageBytes!);
+
+          if (widget.page.type != PageType.single) {
+            imageWidget = ClipRect(
+              child: Align(
+                alignment: widget.page.type == PageType.left ? Alignment.centerLeft : Alignment.centerRight,
+                widthFactor: 0.5,
+                child: imageWidget,
+              ),
+            );
+          }
+
           return InteractiveViewer(
             transformationController: _transformationController,
             minScale: 0.1,
             maxScale: 4.0,
-            constrained: !_isLandscape,
-            child: Align(
-              alignment: Alignment.topLeft,
-              child: Image.memory(
-                _imageBytes!,
-              ),
-            ),
+            child: Center(child: imageWidget),
           );
         } else {
           if (snapshot.hasError) {

@@ -168,7 +168,7 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
     // It's safe to use context here because this is called from the build method.
     final screenSize = MediaQuery.of(context).size;
     return _ImagePageWidget(
-      key: ValueKey('${page.path}-${page.type}'),
+      key: ValueKey(page),
       page: page,
       imageBytesFuture: _loadImageBytes(page.path),
       screenSize: screenSize,

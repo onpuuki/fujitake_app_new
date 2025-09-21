@@ -1,3 +1,4 @@
+import 'dart:math';
 import 'package:fujitake_app_new/services/debug_log_service.dart';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
@@ -342,7 +343,18 @@ class _ImagePageWidgetState extends State<_ImagePageWidget> {
     try {
       DebugLogService().addLog('[_ImagePageWidget] _initialize START for page: ${widget.page.path}');
       _imageBytes = await widget.imageBytesFuture;
-      _transformationController = TransformationController();
+      final image = await decodeImageFromList(_imageBytes!);
+      final screenSize = widget.screenSize;
+      final isSplitPage = widget.page.type != PageType.single;
+
+      if (isSplitPage) {
+        final scale = min(screenSize.width / (image.width / 2), screenSize.height / image.height);
+        final initialMatrix = Matrix4.identity()..scale(scale);
+        _transformationController = TransformationController(initialMatrix);
+      } else {
+        _transformationController = TransformationController();
+      }
+
       DebugLogService().addLog('[_ImagePageWidget] _initialize END for page: ${widget.page.path}');
     } catch (e, s) {
       DebugLogService().addLog('[_ImagePageWidget] _initialize CRITICAL ERROR: $e, stackTrace: $s');
@@ -380,7 +392,9 @@ class _ImagePageWidgetState extends State<_ImagePageWidget> {
             maxScale: 4.0,
             constrained: !isSplitPage,
             boundaryMargin: isSplitPage ? const EdgeInsets.all(double.infinity) : EdgeInsets.zero,
-            child: imageWidget,
+            child: Center(
+              child: imageWidget,
+            ),
           );
         } else {
           if (snapshot.hasError) {

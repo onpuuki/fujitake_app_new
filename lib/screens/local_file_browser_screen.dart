@@ -278,7 +278,7 @@ class _LocalFileBrowserScreenState extends State<LocalFileBrowserScreen> {
                                 Navigator.push(
                                   context,
                                   MaterialPageRoute(
-                                    builder: (context) => ImageView-erScreen(
+                                    builder: (context) => ImageViewerScreen(
                                       imagePaths: imagePaths,
                                       initialIndex: initialIndex,
                                       isLocal: true,

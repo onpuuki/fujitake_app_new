@@ -355,12 +355,7 @@ class _ImagePageWidgetState extends State<_ImagePageWidget> {
           ..scale(scale);
         _transformationController = TransformationController(initialMatrix);
       } else {
-        final scale = min(screenSize.width / image.width, screenSize.height / image.height);
-        final verticalOffset = (screenSize.height - (image.height * scale)) / 2;
-        final initialMatrix = Matrix4.identity()
-          ..translate(0.0, verticalOffset > 0 ? verticalOffset : 0.0)
-          ..scale(scale);
-        _transformationController = TransformationController(initialMatrix);
+        _transformationController = TransformationController();
       }
 
       DebugLogService().addLog('[_ImagePageWidget] _initialize END for page: ${widget.page.path}');

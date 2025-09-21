@@ -347,12 +347,24 @@ class _ImagePageWidgetState extends State<_ImagePageWidget> {
       final screenSize = widget.screenSize;
       final isSplitPage = widget.page.type != PageType.single;
 
+      // 基準となる単一表示のスケールとオフセットを計算
+      final singleImageScale = min(screenSize.width / image.width, screenSize.height / image.height);
+      final singleImageVerticalOffset = (screenSize.height - (image.height * singleImageScale)) / 2;
+
       if (isSplitPage) {
-        final scale = min(screenSize.width / (image.width / 2), screenSize.height / image.height);
-        final initialMatrix = Matrix4.identity()..scale(scale);
+        // 分割表示用のスケールを計算
+        final splitImageScale = min(screenSize.width / (image.width / 2), screenSize.height / image.height);
+        // オフセットは単一表示のものを使用し、スケールは分割表示のものを使用
+        final initialMatrix = Matrix4.identity()
+          ..translate(0.0, singleImageVerticalOffset > 0 ? singleImageVerticalOffset : 0.0)
+          ..scale(splitImageScale);
         _transformationController = TransformationController(initialMatrix);
       } else {
-        _transformationController = TransformationController();
+        // 単一表示
+        final initialMatrix = Matrix4.identity()
+          ..translate(0.0, singleImageVerticalOffset > 0 ? singleImageVerticalOffset : 0.0)
+          ..scale(singleImageScale);
+        _transformationController = TransformationController(initialMatrix);
       }
 
       DebugLogService().addLog('[_ImagePageWidget] _initialize END for page: ${widget.page.path}');
@@ -390,11 +402,9 @@ class _ImagePageWidgetState extends State<_ImagePageWidget> {
             transformationController: _transformationController,
             minScale: 0.1,
             maxScale: 4.0,
-            constrained: !isSplitPage,
-            boundaryMargin: isSplitPage ? const EdgeInsets.all(double.infinity) : EdgeInsets.zero,
-            child: Center(
-              child: imageWidget,
-            ),
+            constrained: false, // Set to false to allow custom positioning
+            boundaryMargin: const EdgeInsets.all(double.infinity),
+            child: imageWidget,
           );
         } else {
           if (snapshot.hasError) {

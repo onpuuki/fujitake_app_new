@@ -377,6 +377,8 @@ class _ImagePageWidgetState extends State<_ImagePageWidget> {
             transformationController: _transformationController,
             minScale: 0.1,
             maxScale: 4.0,
+            constrained: false,
+            boundaryMargin: const EdgeInsets.all(double.infinity),
             child: imageWidget,
           );
         } else {

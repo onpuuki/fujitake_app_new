@@ -168,6 +168,7 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
     // It's safe to use context here because this is called from the build method.
     final screenSize = MediaQuery.of(context).size;
     return _ImagePageWidget(
+      key: ValueKey('${page.path}-${page.type}'),
       page: page,
       imageBytesFuture: _loadImageBytes(page.path),
       screenSize: screenSize,
@@ -304,6 +305,7 @@ class _ImagePageWidget extends StatefulWidget {
   final Size screenSize;
 
   const _ImagePageWidget({
+    super.key,
     required this.page,
     required this.imageBytesFuture,
     required this.screenSize,
@@ -373,7 +375,7 @@ class _ImagePageWidgetState extends State<_ImagePageWidget> {
           );
         } else {
           if (snapshot.hasError) {
-            DebugLogService().addLog('[_ImagePageWidget] FutureBuilder error: ${snapshot.error}');
+            DebugLogService().addLog('[_ImagePageWidget] FutureBuilder error: ${snapshot.error}, stackTrace: ${snapshot.stackTrace}');
           }
           DebugLogService().addLog('[_ImagePageWidget] Building CircularProgressIndicator');
           return const Center(child: CircularProgressIndicator());

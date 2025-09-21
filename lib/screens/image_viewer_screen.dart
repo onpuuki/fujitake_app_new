@@ -344,6 +344,7 @@ class _ImagePageWidgetState extends State<_ImagePageWidget> {
         // Use a more direct way to create the matrix to avoid potential bugs in cascade operators.
         final matrix = Matrix4.diagonal3Values(scale, scale, 1.0)
           ..setTranslationRaw(xOffset.toDouble(), 0, 0);
+        DebugLogService().addLog('[_ImagePageWidget] Matrix: ${matrix.toString()}');
         _transformationController = TransformationController(matrix);
 
       } else {
@@ -369,8 +370,11 @@ class _ImagePageWidgetState extends State<_ImagePageWidget> {
             transformationController: _transformationController,
             minScale: 0.1,
             maxScale: 4.0,
-            child: Image.memory(
-              _imageBytes!,
+            child: Align(
+              alignment: Alignment.topLeft,
+              child: Image.memory(
+                _imageBytes!,
+              ),
             ),
           );
         } else {

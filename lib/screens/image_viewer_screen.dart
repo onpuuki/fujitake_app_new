@@ -1,4 +1,4 @@
-import 'dart:async';
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
@@ -306,64 +306,55 @@ class _ImagePageWidget extends StatefulWidget {
 
 class _ImagePageWidgetState extends State<_ImagePageWidget> {
   TransformationController? _transformationController;
-  ImageInfo? _imageInfo;
+  Uint8List? _imageBytes;
 
   @override
   void initState() {
     super.initState();
-    _initialize();
   }
 
   Future<void> _initialize() async {
-    final imageBytes = await widget.imageBytesFuture;
-    final image = await decodeImageFromList(imageBytes);
+    _imageBytes = await widget.imageBytesFuture;
+    final image = await decodeImageFromList(_imageBytes!);
     final imageInfo = ImageInfo(image: image);
 
-    if (mounted) {
-      setState(() {
-        _imageInfo = imageInfo;
-        if (widget.page.type != PageType.single) {
-          final screenSize = MediaQuery.of(context).size;
-          final scale = screenSize.height / _imageInfo!.image.height;
-          final scaledImageWidth = _imageInfo!.image.width * scale;
-          final xOffset = widget.page.type == PageType.right ? -scaledImageWidth / 2 : 0;
+    if (widget.page.type != PageType.single) {
+      final screenSize = MediaQuery.of(context).size;
+      final scale = screenSize.height / imageInfo.image.height;
+      final scaledImageWidth = imageInfo.image.width * scale;
+      final xOffset = widget.page.type == PageType.right ? -scaledImageWidth / 2 : 0;
 
-          _transformationController = TransformationController(
-            Matrix4.identity()
-              ..translate(xOffset, 0.0)
-              ..scale(scale),
-          );
-        } else {
-          _transformationController = TransformationController();
-        }
-      });
+      _transformationController = TransformationController(
+        Matrix4.identity()
+          ..translate(xOffset, 0.0)
+          ..scale(scale),
+      );
+    } else {
+      _transformationController = TransformationController();
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_transformationController == null) {
-      return const Center(child: CircularProgressIndicator());
-    }
-
-    return InteractiveViewer(
-      transformationController: _transformationController,
-      minScale: 0.1,
-      maxScale: 4.0,
-      child: Center(
-        child: FutureBuilder<Uint8List>(
-          future: widget.imageBytesFuture,
-          builder: (context, snapshot) {
-            if (snapshot.hasData) {
-              return Image.memory(
-                snapshot.data!,
+    return FutureBuilder(
+      future: _initialize(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.done && _transformationController != null) {
+          return InteractiveViewer(
+            transformationController: _transformationController,
+            minScale: 0.1,
+            maxScale: 4.0,
+            child: Center(
+              child: Image.memory(
+                _imageBytes!,
                 fit: BoxFit.contain,
-              );
-            }
-            return const SizedBox.shrink();
-          },
-        ),
-      ),
+              ),
+            ),
+          );
+        } else {
+          return const Center(child: CircularProgressIndicator());
+        }
+      },
     );
   }
 }

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
@@ -315,11 +316,8 @@ class _ImagePageWidgetState extends State<_ImagePageWidget> {
 
   Future<void> _initialize() async {
     final imageBytes = await widget.imageBytesFuture;
-    final completer = Completer<ImageInfo>();
-    decodeImageFromList(imageBytes, (image) {
-      completer.complete(ImageInfo(image: image));
-    });
-    final imageInfo = await completer.future;
+    final image = await decodeImageFromList(imageBytes);
+    final imageInfo = ImageInfo(image: image);
 
     if (mounted) {
       setState(() {

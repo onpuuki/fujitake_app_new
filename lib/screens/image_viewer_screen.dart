@@ -110,10 +110,6 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
     setState(() {
       _isSplitMode = value;
       _isLoading = true;
-      _imageProcessingFutures.clear();
-      _splitImageCache.clear();
-      _decodedImageCache.clear();
-      _isLandscapeMap.clear();
     });
     await _prefs.setBool('isSplitMode', _isSplitMode);
     await _updateDisplayImagePaths();
@@ -179,11 +175,11 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
             // only the left or right half of the image.
             // This assumes the image is wider than the screen.
             final screenSize = MediaQuery.of(context).size;
-            final image = decodeImageFromList(imageBytes);
+            final imageInfo = await decodeImageFromList(imageBytes);
             
             // Assuming the image is scaled to fit the height of the screen.
-            final scale = screenSize.height / image.height;
-            final scaledImageWidth = image.width * scale;
+            final scale = screenSize.height / imageInfo.height;
+            final scaledImageWidth = imageInfo.width * scale;
             
             // The offset to show the right half of the image.
             // The left half will have an offset of 0.

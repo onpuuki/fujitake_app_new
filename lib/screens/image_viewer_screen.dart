@@ -348,7 +348,7 @@ class _ImagePageWidgetState extends State<_ImagePageWidget> {
       final isSplitPage = widget.page.type != PageType.single;
 
       if (isSplitPage) {
-        final scale = min(screenSize.width / (image.width / 2), screenSize.height / image.height);
+        final scale = min(screenSize.width / image.width, screenSize.height / image.height);
         final verticalOffset = (screenSize.height - (image.height * scale)) / 2;
         final initialMatrix = Matrix4.identity()
           ..translate(0.0, verticalOffset > 0 ? verticalOffset : 0.0)

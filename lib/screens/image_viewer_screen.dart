@@ -1,5 +1,3 @@
-import 'dart:async';
-import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
@@ -8,20 +6,14 @@ import 'dart:io';
 import '../services/cache_path_service.dart';
 import '../services/debug_log_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:image/image.dart' as img;
-import 'package:flutter/foundation.dart';
 
-img.Image? _decodeImage(List<int> bytes) {
-  return img.decodeImage(Uint8List.fromList(bytes));
-}
+enum PageType { single, left, right }
 
-Uint8List _splitAndEncodeImage(Map<String, dynamic> params) {
-  final image = params['image'] as img.Image;
-  final isLeft = params['isLeft'] as bool;
-  final half = isLeft
-      ? img.copyCrop(image, x: 0, y: 0, width: image.width ~/ 2, height: image.height)
-      : img.copyCrop(image, x: image.width ~/ 2, y: 0, width: image.width ~/ 2, height: image.height);
-  return Uint8List.fromList(img.encodeJpg(half));
+class DisplayPage {
+  final String path;
+  final PageType type;
+
+  DisplayPage({required this.path, required this.type});
 }
 
 class ImageViewerScreen extends StatefulWidget {
@@ -49,12 +41,8 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
   bool _isSplitMode = false;
   bool _isReverse = false; // false: 右送り, true: 左送り
   late SharedPreferences _prefs;
-  List<String> _displayImagePaths = [];
+  List<DisplayPage> _displayPages = [];
   bool _isLoading = false;
-  final Map<String, bool> _isLandscapeMap = {};
-  final Map<String, img.Image?> _decodedImageCache = {};
-  final Map<String, Uint8List> _splitImageCache = {};
-  final Map<String, Future<void>> _imageProcessingFutures = {};
 
   @override
   void initState() {
@@ -78,76 +66,34 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
       _isLoading = true;
     });
 
-    List<String> newImagePaths;
+    final newPages = <DisplayPage>[];
     if (_isSplitMode) {
-      newImagePaths = await _processImagesInBackground();
+      for (final imagePath in widget.imagePaths) {
+        final bytes = await _loadImageBytes(imagePath);
+        final image = await decodeImageFromList(bytes);
+        if (image.width > image.height) {
+          newPages.add(DisplayPage(path: imagePath, type: PageType.right));
+          newPages.add(DisplayPage(path: imagePath, type: PageType.left));
+        } else {
+          newPages.add(DisplayPage(path: imagePath, type: PageType.single));
+        }
+      }
     } else {
-      newImagePaths = List.from(widget.imagePaths);
+      for (final imagePath in widget.imagePaths) {
+        newPages.add(DisplayPage(path: imagePath, type: PageType.single));
+      }
     }
 
     if (mounted) {
       setState(() {
-        _displayImagePaths = newImagePaths;
+        _displayPages = newPages;
         _isLoading = false;
       });
     }
     DebugLogService().addLog('[updateDisplayImagePaths] Display paths updated.');
   }
 
-  Future<void> _processImage(String imagePath) {
-    // If processing is already underway for this image, return the existing future.
-    if (_imageProcessingFutures.containsKey(imagePath)) {
-      return _imageProcessingFutures[imagePath]!;
-    }
 
-    // Start new processing.
-    final completer = Completer<void>();
-    _imageProcessingFutures[imagePath] = completer.future;
-
-    Future(() async {
-      try {
-        // Skip if orientation is already known.
-        if (_isLandscapeMap.containsKey(imagePath)) return;
-
-        final bytes = await _loadImageBytes(imagePath);
-        final image = await compute(_decodeImage, bytes.toList());
-        final isLandscape = image != null && image.width > image.height;
-        _isLandscapeMap[imagePath] = isLandscape;
-
-        if (isLandscape) {
-          final leftHalfBytes = await compute(_splitAndEncodeImage, {'image': image, 'isLeft': true});
-          _splitImageCache['$imagePath-left'] = leftHalfBytes;
-          final rightHalfBytes = await compute(_splitAndEncodeImage, {'image': image, 'isLeft': false});
-          _splitImageCache['$imagePath-right'] = rightHalfBytes;
-        }
-      } catch (e) {
-        DebugLogService().addLog('[_processImage] Error processing $imagePath: $e');
-        _isLandscapeMap[imagePath] = false; // Assume portrait on error.
-      } finally {
-        completer.complete();
-      }
-    });
-
-    return completer.future;
-  }
-
-  Future<List<String>> _processImagesInBackground() async {
-    final newImagePaths = <String>[];
-    for (final imagePath in widget.imagePaths) {
-      await _processImage(imagePath);
-      if (!mounted) return [];
-
-      final isLandscape = _isLandscapeMap[imagePath] ?? false;
-      if (isLandscape) {
-        newImagePaths.add('$imagePath-right');
-        newImagePaths.add('$imagePath-left');
-      } else {
-        newImagePaths.add(imagePath);
-      }
-    }
-    DebugLogService().addLog('[_processImagesInBackground] Finished processing all images.');
-    return newImagePaths;
-  }
 
   Future<void> _loadPreferences() async {
     _prefs = await SharedPreferences.getInstance();
@@ -180,23 +126,22 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
 
   Future<Uint8List> _loadImageBytes(String imagePath) async {
     final stopwatch = Stopwatch()..start();
-    final originalPath = imagePath.replaceAll('-left', '').replaceAll('-right', '');
     try {
-      if (_imageCache.containsKey(originalPath)) {
-        DebugLogService().addLog('[_loadImageBytes] Load from cache: $originalPath');
-        return _imageCache[originalPath]!;
+      if (_imageCache.containsKey(imagePath)) {
+        DebugLogService().addLog('[_loadImageBytes] Load from cache: $imagePath');
+        return _imageCache[imagePath]!;
       }
       if (widget.isLocal) {
-        final localFile = File(originalPath);
+        final localFile = File(imagePath);
         final bytes = await localFile.readAsBytes();
-        _imageCache[originalPath] = bytes;
+        _imageCache[imagePath] = bytes;
         return bytes;
       }
-      final localPath = await CachePathService.instance.getLocalPath(widget.server!.id, originalPath);
+      final localPath = await CachePathService.instance.getLocalPath(widget.server!.id, imagePath);
       final localFile = File(localPath);
       if (await localFile.exists()) {
         final bytes = await localFile.readAsBytes();
-        _imageCache[originalPath] = bytes;
+        _imageCache[imagePath] = bytes;
         return bytes;
       } else {
         const MethodChannel smbChannel = MethodChannel('com.example.fujitake_app_new/smb');
@@ -205,79 +150,76 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
           'shareName': widget.server!.shareName,
           'username': widget.server!.username,
           'password': widget.server!.password,
-          'path': originalPath,
+          'path': imagePath,
           'domain': widget.server!.domain,
         });
         await localFile.parent.create(recursive: true);
         await localFile.writeAsBytes(imageBytes);
-        _imageCache[originalPath] = imageBytes;
+        _imageCache[imagePath] = imageBytes;
         return imageBytes;
       }
     } finally {
       stopwatch.stop();
-      DebugLogService().addLog('[_loadImageBytes] Loaded $originalPath in ${stopwatch.elapsedMilliseconds}ms.');
+      DebugLogService().addLog('[_loadImageBytes] Loaded $imagePath in ${stopwatch.elapsedMilliseconds}ms.');
     }
   }
 
-  Uint8List? _getImageFromCacheSync(String imagePath) {
-    if (imagePath.endsWith('-left') || imagePath.endsWith('-right')) {
-      return _splitImageCache[imagePath];
-    } else {
-      final originalPath = imagePath.replaceAll('-left', '').replaceAll('-right', '');
-      return _imageCache[originalPath];
-    }
-  }
 
-  Future<Uint8List> _getImage(String imagePathWithSuffix) async {
-    final stopwatch = Stopwatch()..start();
-    try {
-      if (_splitImageCache.containsKey(imagePathWithSuffix)) {
-        return _splitImageCache[imagePathWithSuffix]!;
-      }
 
-      final originalPath = imagePathWithSuffix.replaceAll('-left', '').replaceAll('-right', '');
-      await _processImage(originalPath);
-
-      if (_splitImageCache.containsKey(imagePathWithSuffix)) {
-        return _splitImageCache[imagePathWithSuffix]!;
-      }
-
-      return _loadImageBytes(originalPath);
-    } finally {
-      stopwatch.stop();
-      DebugLogService().addLog('[_getImage] Finished getting $imagePathWithSuffix in ${stopwatch.elapsedMilliseconds}ms.');
-    }
-  }
-
-  Widget _buildImagePage(String imagePathWithSuffix) {
-    final cachedImage = _getImageFromCacheSync(imagePathWithSuffix);
-
+  Widget _buildImagePage(DisplayPage page) {
     return FutureBuilder<Uint8List>(
-      future: _getImage(imagePathWithSuffix),
-      initialData: cachedImage,
+      future: _loadImageBytes(page.path),
       builder: (context, snapshot) {
-        Widget content;
-        if (snapshot.hasData) {
-          content = Center(child: Image.memory(snapshot.data!, gaplessPlayback: true));
+        if (snapshot.connectionState == ConnectionState.done && snapshot.hasData) {
+          final imageBytes = snapshot.data!;
+          final transformationController = TransformationController();
+
+          if (page.type != PageType.single) {
+            // For split pages, we need to calculate the initial matrix to show
+            // only the left or right half of the image.
+            // This assumes the image is wider than the screen.
+            final screenSize = MediaQuery.of(context).size;
+            final image = decodeImageFromList(imageBytes);
+            
+            // Assuming the image is scaled to fit the height of the screen.
+            final scale = screenSize.height / image.height;
+            final scaledImageWidth = image.width * scale;
+            
+            // The offset to show the right half of the image.
+            // The left half will have an offset of 0.
+            final xOffset = page.type == PageType.right ? -scaledImageWidth / 2 : 0;
+
+            transformationController.value = Matrix4.identity()
+              ..translate(xOffset, 0.0)
+              ..scale(scale);
+          }
+
+          return InteractiveViewer(
+            transformationController: transformationController,
+            minScale: 0.1,
+            maxScale: 4.0,
+            child: Center(
+              child: Image.memory(
+                imageBytes,
+                fit: BoxFit.contain,
+              ),
+            ),
+          );
         } else if (snapshot.hasError) {
-          content = Center(child: Text('Error: ${snapshot.error}'));
+          return Center(child: Text('Error: ${snapshot.error}'));
         } else {
-          content = const Center(child: CircularProgressIndicator());
+          return const Center(child: CircularProgressIndicator());
         }
-        return AnimatedSwitcher(
-          duration: const Duration(milliseconds: 150),
-          child: content,
-        );
       },
     );
   }
 
   Future<void> _preloadImages(int index) async {
     final pathsToPreload = <String>{};
-    if (index > 0) pathsToPreload.add(_displayImagePaths[index - 1]);
-    if (index < _displayImagePaths.length - 1) pathsToPreload.add(_displayImagePaths[index + 1]);
+    if (index > 0) pathsToPreload.add(_displayPages[index - 1].path);
+    if (index < _displayPages.length - 1) pathsToPreload.add(_displayPages[index + 1].path);
     for (final path in pathsToPreload) {
-      _getImage(path);
+      _loadImageBytes(path);
     }
   }
 
@@ -294,7 +236,7 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(_displayImagePaths.isNotEmpty ? p.basename(_displayImagePaths[_currentIndex].replaceAll('-left', '').replaceAll('-right', '')) : ''),
+        title: Text(_displayPages.isNotEmpty ? p.basename(_displayPages[_currentIndex].path) : ''),
         actions: [
           PopupMenuButton<bool>(
             onSelected: (value) {
@@ -362,7 +304,7 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
                 Expanded(
                   child: PageView.builder(
                     controller: _pageController,
-                    itemCount: _displayImagePaths.length,
+                    itemCount: _displayPages.length,
                     reverse: _isReverse,
                     onPageChanged: (index) {
                       if (mounted) {
@@ -373,7 +315,7 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
                       _preloadImages(index);
                     },
                     itemBuilder: (context, index) {
-                      return _buildImagePage(_displayImagePaths[index]);
+                      return _buildImagePage(_displayPages[index]);
                     },
                   ),
                 ),
@@ -384,7 +326,7 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Text(
-                        '${_currentIndex + 1} / ${_displayImagePaths.length}',
+                        '${_currentIndex + 1} / ${_displayPages.length}',
                         style: const TextStyle(color: Colors.white, fontSize: 16.0),
                       ),
                     ],

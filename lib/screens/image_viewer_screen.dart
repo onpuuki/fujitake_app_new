@@ -315,7 +315,11 @@ class _ImagePageWidgetState extends State<_ImagePageWidget> {
 
   Future<void> _initialize() async {
     final imageBytes = await widget.imageBytesFuture;
-    final imageInfo = await decodeImageFromList(imageBytes);
+    final completer = Completer<ImageInfo>();
+    decodeImageFromList(imageBytes, (image) {
+      completer.complete(ImageInfo(image: image));
+    });
+    final imageInfo = await completer.future;
 
     if (mounted) {
       setState(() {

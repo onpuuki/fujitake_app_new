@@ -165,7 +165,7 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
   Widget _buildImagePage(DisplayPage page) {
     return FutureBuilder<Uint8List>(
       future: _loadImageBytes(page.path),
-      builder: (context, snapshot) {
+      builder: (context, snapshot) async {
         if (snapshot.connectionState == ConnectionState.done && snapshot.hasData) {
           final imageBytes = snapshot.data!;
           final transformationController = TransformationController();

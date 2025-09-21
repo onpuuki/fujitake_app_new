@@ -330,6 +330,7 @@ class _ImagePageWidgetState extends State<_ImagePageWidget> {
   Future<void> _initialize() async {
     try {
       DebugLogService().addLog('[_ImagePageWidget] _initialize START for page: ${widget.page.path}');
+      DebugLogService().addLog('[_ImagePageWidget] screenSize: ${widget.screenSize}');
       _imageBytes = await widget.imageBytesFuture;
       final image = await decodeImageFromList(_imageBytes!);
       final imageInfo = ImageInfo(image: image);
@@ -338,6 +339,7 @@ class _ImagePageWidgetState extends State<_ImagePageWidget> {
       if (widget.page.type != PageType.single) {
         final scale = widget.screenSize.height / imageInfo.image.height;
         final scaledImageWidth = imageInfo.image.width * scale;
+        DebugLogService().addLog('[_ImagePageWidget] scaledImageWidth: $scaledImageWidth');
         final xOffset = widget.page.type == PageType.right ? -scaledImageWidth / 2 : 0;
         DebugLogService().addLog('[_ImagePageWidget] Split view params: scale=$scale, xOffset=$xOffset');
 
@@ -370,6 +372,7 @@ class _ImagePageWidgetState extends State<_ImagePageWidget> {
             transformationController: _transformationController,
             minScale: 0.1,
             maxScale: 4.0,
+            constrained: false,
             child: Align(
               alignment: Alignment.topLeft,
               child: Image.memory(

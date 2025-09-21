@@ -349,10 +349,7 @@ class _ImagePageWidgetState extends State<_ImagePageWidget> {
 
       if (isSplitPage) {
         final scale = min(screenSize.width / (image.width / 2), screenSize.height / image.height);
-        final verticalOffset = (screenSize.height - (image.height * scale)) / 2;
-        final initialMatrix = Matrix4.identity()
-          ..translate(0.0, verticalOffset > 0 ? verticalOffset : 0.0)
-          ..scale(scale);
+        final initialMatrix = Matrix4.identity()..scale(scale);
         _transformationController = TransformationController(initialMatrix);
       } else {
         _transformationController = TransformationController();

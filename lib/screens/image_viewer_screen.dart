@@ -319,6 +319,7 @@ class _ImagePageWidgetState extends State<_ImagePageWidget> {
   late final Future<void> _initializationFuture;
   TransformationController? _transformationController;
   Uint8List? _imageBytes;
+  bool _isLandscape = false;
 
   @override
   void initState() {
@@ -335,6 +336,8 @@ class _ImagePageWidgetState extends State<_ImagePageWidget> {
       final image = await decodeImageFromList(_imageBytes!);
       final imageInfo = ImageInfo(image: image);
       DebugLogService().addLog('[_ImagePageWidget] Image decoded: ${imageInfo.image.width}x${imageInfo.image.height}');
+      _isLandscape = imageInfo.image.width > imageInfo.image.height;
+      DebugLogService().addLog('[_ImagePageWidget] isLandscape: $_isLandscape');
 
       if (widget.page.type != PageType.single) {
         final scale = widget.screenSize.height / imageInfo.image.height;
@@ -372,7 +375,7 @@ class _ImagePageWidgetState extends State<_ImagePageWidget> {
             transformationController: _transformationController,
             minScale: 0.1,
             maxScale: 4.0,
-            constrained: false,
+            constrained: !_isLandscape,
             child: Align(
               alignment: Alignment.topLeft,
               child: Image.memory(

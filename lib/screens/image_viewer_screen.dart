@@ -343,7 +343,7 @@ class _ImagePageWidgetState extends State<_ImagePageWidget> {
 
         // Use a more direct way to create the matrix to avoid potential bugs in cascade operators.
         final matrix = Matrix4.diagonal3Values(scale, scale, 1.0)
-          ..setTranslationRaw(xOffset, 0, 0);
+          ..setTranslationRaw(xOffset.toDouble(), 0, 0);
         _transformationController = TransformationController(matrix);
 
       } else {

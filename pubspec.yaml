@@ -53,7 +53,7 @@ dependencies:
   # --- ここまで追加 ---
 
   # ★追加するパッケージ★
-  shared_preferences: ^2.2.3 # ユーザーIDの永続化用
+  shared_preferences: ^2.5.3 # ユーザーIDの永続化用
 
 
   
@@ -71,7 +71,7 @@ dependencies:
 
   collection: ^1.18.0
   crypto: ^3.0.6
-  image: ^4.5.4
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

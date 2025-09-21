@@ -164,9 +164,12 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
 
 
   Widget _buildImagePage(DisplayPage page) {
+    // It's safe to use context here because this is called from the build method.
+    final screenSize = MediaQuery.of(context).size;
     return _ImagePageWidget(
       page: page,
       imageBytesFuture: _loadImageBytes(page.path),
+      screenSize: screenSize,
     );
   }
 
@@ -297,8 +300,13 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
 class _ImagePageWidget extends StatefulWidget {
   final DisplayPage page;
   final Future<Uint8List> imageBytesFuture;
+  final Size screenSize;
 
-  const _ImagePageWidget({required this.page, required this.imageBytesFuture});
+  const _ImagePageWidget({
+    required this.page,
+    required this.imageBytesFuture,
+    required this.screenSize,
+  });
 
   @override
   _ImagePageWidgetState createState() => _ImagePageWidgetState();
@@ -325,10 +333,7 @@ class _ImagePageWidgetState extends State<_ImagePageWidget> {
 
 
     if (widget.page.type != PageType.single) {
-      // This context is safe because _initialize is called from initState,
-      // which is called after the widget is mounted.
-      final screenSize = MediaQuery.of(context).size;
-      final scale = screenSize.height / imageInfo.image.height;
+      final scale = widget.screenSize.height / imageInfo.image.height;
       final scaledImageWidth = imageInfo.image.width * scale;
       final xOffset = widget.page.type == PageType.right ? -scaledImageWidth / 2 : 0;
       print('[_ImagePageWidget] Split view params: scale=$scale, xOffset=$xOffset');

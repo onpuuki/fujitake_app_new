@@ -361,8 +361,9 @@ class _ImagePageWidgetState extends State<_ImagePageWidget> {
           DebugLogService().addLog('[_ImagePageWidget] Building InteractiveViewer for page type: ${widget.page.type}');
           
           Widget imageWidget = Image.memory(_imageBytes!);
+          final isSplitPage = widget.page.type != PageType.single;
 
-          if (widget.page.type != PageType.single) {
+          if (isSplitPage) {
             DebugLogService().addLog('[_ImagePageWidget] Applying ClipRect for split view');
             imageWidget = ClipRect(
               child: Align(
@@ -377,8 +378,8 @@ class _ImagePageWidgetState extends State<_ImagePageWidget> {
             transformationController: _transformationController,
             minScale: 0.1,
             maxScale: 4.0,
-            constrained: false,
-            boundaryMargin: const EdgeInsets.all(double.infinity),
+            constrained: !isSplitPage,
+            boundaryMargin: isSplitPage ? const EdgeInsets.all(double.infinity) : EdgeInsets.zero,
             child: imageWidget,
           );
         } else {

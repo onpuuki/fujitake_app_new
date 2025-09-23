@@ -157,17 +157,21 @@ class MainActivity : FlutterActivity() {
 
 
     private fun startVideoPlaybackService() {
+        sendDebugLog("Attempting to start VideoPlaybackService")
         val serviceIntent = Intent(this, VideoPlaybackService::class.java)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             startForegroundService(serviceIntent)
         } else {
             startService(serviceIntent)
         }
+        sendDebugLog("VideoPlaybackService start command issued")
     }
 
     private fun stopVideoPlaybackService() {
+        sendDebugLog("Attempting to stop VideoPlaybackService")
         val serviceIntent = Intent(this, VideoPlaybackService::class.java)
         stopService(serviceIntent)
+        sendDebugLog("VideoPlaybackService stop command issued")
     }
 
     private fun handleDownloadFile(call: MethodCall, result: MethodChannel.Result) {

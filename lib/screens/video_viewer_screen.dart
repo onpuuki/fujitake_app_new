@@ -38,7 +38,9 @@ class _VideoViewerScreenState extends State<VideoViewerScreen> {
   @override
   void initState() {
     super.initState();
+    GlobalLog.add('VideoViewerScreen: initState');
     _smbChannel.setMethodCallHandler(_handleMethodCalls);
+    GlobalLog.add('VideoViewerScreen: Invoking startVideoPlaybackService');
     _videoPlaybackChannel.invokeMethod('startVideoPlaybackService');
     _initializePlayer();
   }
@@ -173,11 +175,12 @@ class _VideoViewerScreenState extends State<VideoViewerScreen> {
 
   @override
   void dispose() {
+    GlobalLog.add('VideoViewerScreen: dispose');
     _controlsTimer?.cancel();
     if (widget.videoPath != null) {
       _smbChannel.invokeMethod('stopStreaming', {'fileName': p.basename(widget.videoPath!)});
-
     }
+    GlobalLog.add('VideoViewerScreen: Invoking stopVideoPlaybackService');
     _videoPlaybackChannel.invokeMethod('stopVideoPlaybackService');
     _controller?.dispose();
     SystemChrome.setPreferredOrientations([

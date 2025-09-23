@@ -40,8 +40,6 @@ class _VideoViewerScreenState extends State<VideoViewerScreen> {
     super.initState();
     GlobalLog.add('VideoViewerScreen: initState');
     _smbChannel.setMethodCallHandler(_handleMethodCalls);
-    GlobalLog.add('VideoViewerScreen: Invoking startVideoPlaybackService');
-    _videoPlaybackChannel.invokeMethod('startVideoPlaybackService');
     _initializePlayer();
   }
 
@@ -129,7 +127,15 @@ class _VideoViewerScreenState extends State<VideoViewerScreen> {
       }
 
       await controller.initialize();
+      await controller.setVolume(0.0); // 映像プレーヤーをミュート
       print("VideoPlayerControllerの初期化が完了。");
+
+      // 音声サービスを開始
+      if (controller.dataSourceType == DataSourceType.network) {
+        GlobalLog.add('VideoViewerScreen: Invoking startVideoPlaybackService with URL: ${controller.dataSource}');
+        await _smbChannel.invokeMethod('startVideoPlaybackService', {'videoUrl': controller.dataSource});
+      }
+
       await controller.play();
       if (mounted) {
         setState(() {
@@ -191,11 +197,9 @@ class _VideoViewerScreenState extends State<VideoViewerScreen> {
   void dispose() {
     GlobalLog.add('VideoViewerScreen: dispose');
     _controlsTimer?.cancel();
-    if (widget.videoPath != null) {
-      _smbChannel.invokeMethod('stopStreaming', {'fileName': p.basename(widget.videoPath!)});
-    }
-    GlobalLog.add('VideoViewerScreen: Invoking stopVideoPlaybackService');
-    _videoPlaybackChannel.invokeMethod('stopVideoPlaybackService');
+    
+    _smbChannel.invokeMethod('stopVideoPlaybackService');
+
     _controller?.dispose();
     SystemChrome.setPreferredOrientations([
       DeviceOrientation.portraitUp,
@@ -476,21 +480,28 @@ class _VideoViewerScreenState extends State<VideoViewerScreen> {
 
   void _togglePlaying() {
     if (_controller == null) return;
-    setState(() {
-      if (_controller!.value.isPlaying) {
-        _controller!.pause();
-      } else {
-        _controller!.play();
-        _startControlsTimer();
-      }
-    });
+    final bool isPlaying = _controller!.value.isPlaying;
+    if (isPlaying) {
+      _controller!.pause();
+      _smbChannel.invokeMethod('controlVideoPlayback', {'control': 'pause'});
+    } else {
+      _controller!.play();
+      _smbChannel.invokeMethod('controlVideoPlayback', {'control': 'play'});
+      _startControlsTimer();
+    }
+    setState(() {});
   }
 
   Future<void> _seekRelative(Duration duration) async {
     if (_controller == null) return;
     final currentPosition = await _controller!.position;
     if (currentPosition != null) {
-      await _controller!.seekTo(currentPosition + duration);
+      final newPosition = currentPosition + duration;
+      await _controller!.seekTo(newPosition);
+      _smbChannel.invokeMethod('controlVideoPlayback', {
+        'control': 'seek',
+        'position': newPosition.inMilliseconds,
+      });
     }
   }
 

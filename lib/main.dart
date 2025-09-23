@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:fujitake_app_new/services/debug_log_service.dart';
+
+
 import 'package:fujitake_app_new/services/cache_service.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -28,6 +31,7 @@ const String _firebaseConfigString = String.fromEnvironment(
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await checkForCrashReport();
   
   // デスクトップ環境 (Windows, Linux, macOS) のみで FFI を初期化
   if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
@@ -46,6 +50,7 @@ Future<void> main() async {
     ),
   );
 }
+
 
 // Firebaseやその他の非同期初期化処理
 Future<void> _initializeApp() async {
@@ -122,3 +127,4 @@ class MyApp extends StatelessWidget {
     );
   }
 }
+

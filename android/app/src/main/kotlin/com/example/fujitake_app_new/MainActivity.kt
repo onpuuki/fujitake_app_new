@@ -142,9 +142,58 @@ class MainActivity : FlutterActivity() {
                 "startStreaming" -> handleStartStreaming(call, result)
                 "stopStreaming" -> handleStopStreaming(call, result)
                 "copy" -> handleCopyFile(call, result)
+                "controlVideoPlayback" -> {
+                    val control = call.argument<String>("control")
+                    val position = call.argument<Int>("position")
+                    controlVideoPlayback(control, position)
+                    result.success(null)
+                }
+                "startVideoPlaybackService" -> {
+                    val videoUrl = call.argument<String>("videoUrl")
+                    val position = call.argument<Int>("position")
+                    startVideoPlaybackService(videoUrl, position)
+                    result.success(null)
+                }
+                "stopVideoPlaybackService" -> {
+                    stopVideoPlaybackService()
+                    result.success(null)
+                }
+                "checkForCrashReport" -> checkForCrashReport(this, result)
                 else -> result.notImplemented()
             }
         }
+    }
+
+
+    private fun startVideoPlaybackService(videoUrl: String?, position: Int?) {
+        sendDebugLog("MainActivity: Attempting to start VideoPlaybackService at position $position")
+        val serviceIntent = Intent(this, VideoPlaybackService::class.java).apply {
+            putExtra("videoUrl", videoUrl)
+            putExtra("position", position ?: 0)
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(serviceIntent)
+        } else {
+            startService(serviceIntent)
+        }
+        sendDebugLog("MainActivity: startForegroundService/startService was called.")
+    }
+
+    private fun controlVideoPlayback(control: String?, position: Int?) {
+        sendDebugLog("MainActivity: controlVideoPlayback called with control: $control, position: $position")
+        val intent = Intent(this, VideoPlaybackService::class.java).apply {
+            action = "CONTROL_ACTION"
+            putExtra("control", control)
+            putExtra("position", position ?: 0)
+        }
+        startService(intent)
+    }
+
+    private fun stopVideoPlaybackService() {
+        sendDebugLog("Attempting to stop VideoPlaybackService")
+        val serviceIntent = Intent(this, VideoPlaybackService::class.java)
+        stopService(serviceIntent)
+        sendDebugLog("VideoPlaybackService stop command issued")
     }
 
     private fun handleDownloadFile(call: MethodCall, result: MethodChannel.Result) {
@@ -520,6 +569,7 @@ class MainActivity : FlutterActivity() {
                         } else {
                             allFiles.add(mapOf(
                                 "name" to file.name.removeSuffix("/"),
+
                                 "isDirectory" to file.isDirectory,
                                 "size" to file.length(),
                                 "lastModified" to file.lastModified,
@@ -647,5 +697,21 @@ class WebServer(private val smbFile: SmbFile, private val log: (String) -> Unit,
             log("WebServer: [ERROR] in serve: ${e.message}\n${e.stackTraceToString()}")
             return newFixedLengthResponse(Response.Status.INTERNAL_ERROR, MIME_PLAINTEXT, "Error: ${e.message}")
         }
+    }
+
+}
+
+private fun checkForCrashReport(context: Context, result: MethodChannel.Result) {
+    val crashReportFile = File(context.filesDir, "crash_report.txt")
+    if (crashReportFile.exists()) {
+        try {
+            val report = crashReportFile.readText()
+            result.success(report)
+            crashReportFile.delete()
+        } catch (e: Exception) {
+            result.error("READ_ERROR", "Could not read crash report", e.toString())
+        }
+    } else {
+        result.success(null)
     }
 }

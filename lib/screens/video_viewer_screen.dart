@@ -34,9 +34,11 @@ class _VideoViewerScreenState extends State<VideoViewerScreen> {
 
   final MethodChannel _smbChannel = const MethodChannel('com.example.fujitake_app_new/smb');
 
+  final MethodChannel _videoPlaybackChannel = const MethodChannel('com.example.fujitake_app_new/video_playback');
   @override
   void initState() {
     super.initState();
+    GlobalLog.add('VideoViewerScreen: initState');
     _smbChannel.setMethodCallHandler(_handleMethodCalls);
     _initializePlayer();
   }
@@ -125,7 +127,15 @@ class _VideoViewerScreenState extends State<VideoViewerScreen> {
       }
 
       await controller.initialize();
+      await controller.setVolume(0.0); // 映像プレーヤーをミュート
       print("VideoPlayerControllerの初期化が完了。");
+
+      // 音声サービスを開始
+      if (controller.dataSourceType == DataSourceType.network) {
+        GlobalLog.add('VideoViewerScreen: Invoking startVideoPlaybackService with URL: ${controller.dataSource}');
+        await _smbChannel.invokeMethod('startVideoPlaybackService', {'videoUrl': controller.dataSource});
+      }
+
       await controller.play();
       if (mounted) {
         setState(() {
@@ -149,32 +159,47 @@ class _VideoViewerScreenState extends State<VideoViewerScreen> {
   }
 
   Future<String?> _getStreamingUrl() async {
+    GlobalLog.add('VideoViewerScreen: _getStreamingUrl called');
     File? localFile = widget.localPath != null ? File(widget.localPath!) : null;
     bool localFileExists = await localFile?.exists() ?? false;
     if (localFileExists) {
+      GlobalLog.add('VideoViewerScreen: Local file exists, but streaming remote for now.');
       // ローカルファイルの場合はストリーミングサーバーを起動する必要があるかもしれません。
       // 現在の実装ではネットワークURLを期待しているため、一旦smbからのストリーミングに倒します。
     }
 
-    final smbUrl = 'smb://${widget.server!.host}${widget.server!.shareName != null ? '/${widget.server!.shareName}' : ''}/${widget.videoPath}';
-    return _smbChannel.invokeMethod<String>('startStreaming', {
-      'smbUrl': smbUrl,
+    if (widget.videoPath == null) {
+      GlobalLog.add('VideoViewerScreen: videoPath is null in _getStreamingUrl');
+      return null;
+    }
+
+    final String fileName = p.basename(widget.videoPath!);
+    GlobalLog.add('VideoViewerScreen: Starting streaming for $fileName in _getStreamingUrl');
+    final String? streamingUrl = await _smbChannel.invokeMethod('startStreaming', {
       'host': widget.server!.host,
       'shareName': widget.server!.shareName,
+      'path': widget.videoPath,
       'username': widget.server!.username,
       'password': widget.server!.password,
-      'path': widget.videoPath,
-      'fileName': p.basename(widget.videoPath!),
       'domain': widget.server!.domain,
+      'fileName': fileName,
     });
+
+    if (streamingUrl == null) {
+      GlobalLog.add('VideoViewerScreen: Failed to get streaming URL in _getStreamingUrl.');
+    } else {
+      GlobalLog.add('VideoViewerScreen: Streaming URL received in _getStreamingUrl: $streamingUrl');
+    }
+    return streamingUrl;
   }
 
   @override
   void dispose() {
+    GlobalLog.add('VideoViewerScreen: dispose');
     _controlsTimer?.cancel();
-    if (widget.videoPath != null) {
-      _smbChannel.invokeMethod('stopStreaming', {'fileName': p.basename(widget.videoPath!)});
-    }
+    
+    _smbChannel.invokeMethod('stopVideoPlaybackService');
+
     _controller?.dispose();
     SystemChrome.setPreferredOrientations([
       DeviceOrientation.portraitUp,
@@ -455,21 +480,28 @@ class _VideoViewerScreenState extends State<VideoViewerScreen> {
 
   void _togglePlaying() {
     if (_controller == null) return;
-    setState(() {
-      if (_controller!.value.isPlaying) {
-        _controller!.pause();
-      } else {
-        _controller!.play();
-        _startControlsTimer();
-      }
-    });
+    final bool isPlaying = _controller!.value.isPlaying;
+    if (isPlaying) {
+      _controller!.pause();
+      _smbChannel.invokeMethod('controlVideoPlayback', {'control': 'pause'});
+    } else {
+      _controller!.play();
+      _smbChannel.invokeMethod('controlVideoPlayback', {'control': 'play'});
+      _startControlsTimer();
+    }
+    setState(() {});
   }
 
   Future<void> _seekRelative(Duration duration) async {
     if (_controller == null) return;
     final currentPosition = await _controller!.position;
     if (currentPosition != null) {
-      await _controller!.seekTo(currentPosition + duration);
+      final newPosition = currentPosition + duration;
+      await _controller!.seekTo(newPosition);
+      _smbChannel.invokeMethod('controlVideoPlayback', {
+        'control': 'seek',
+        'position': newPosition.inMilliseconds,
+      });
     }
   }
 

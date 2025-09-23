@@ -1,4 +1,11 @@
 # Flutter's default rules can be found here:
+# Flutter's default rules are applied before this file.
+-keep class com.google.android.exoplayer2.** { *; }
+-keep interface com.google.android.exoplayer2.** { *; }
+-dontwarn com.google.android.exoplayer2.**
+-keep class com.google.android.gms.** { *; }
+-dontwarn com.google.android.gms.**
+
 # https://github.com/flutter/flutter/blob/master/packages/flutter_tools/gradle/flutter_project_proguard_rules.pro
 
 # BouncyCastle providerを保持するための設定

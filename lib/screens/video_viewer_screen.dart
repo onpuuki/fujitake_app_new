@@ -153,24 +153,38 @@ class _VideoViewerScreenState extends State<VideoViewerScreen> {
   }
 
   Future<String?> _getStreamingUrl() async {
+    GlobalLog.add('VideoViewerScreen: _getStreamingUrl called');
     File? localFile = widget.localPath != null ? File(widget.localPath!) : null;
     bool localFileExists = await localFile?.exists() ?? false;
     if (localFileExists) {
+      GlobalLog.add('VideoViewerScreen: Local file exists, but streaming remote for now.');
       // ローカルファイルの場合はストリーミングサーバーを起動する必要があるかもしれません。
       // 現在の実装ではネットワークURLを期待しているため、一旦smbからのストリーミングに倒します。
     }
 
-    final smbUrl = 'smb://${widget.server!.host}${widget.server!.shareName != null ? '/${widget.server!.shareName}' : ''}/${widget.videoPath}';
-    return _smbChannel.invokeMethod<String>('startStreaming', {
-      'smbUrl': smbUrl,
+    if (widget.videoPath == null) {
+      GlobalLog.add('VideoViewerScreen: videoPath is null in _getStreamingUrl');
+      return null;
+    }
+
+    final String fileName = p.basename(widget.videoPath!);
+    GlobalLog.add('VideoViewerScreen: Starting streaming for $fileName in _getStreamingUrl');
+    final String? streamingUrl = await _smbChannel.invokeMethod('startStreaming', {
       'host': widget.server!.host,
       'shareName': widget.server!.shareName,
+      'path': widget.videoPath,
       'username': widget.server!.username,
       'password': widget.server!.password,
-      'path': widget.videoPath,
-      'fileName': p.basename(widget.videoPath!),
       'domain': widget.server!.domain,
+      'fileName': fileName,
     });
+
+    if (streamingUrl == null) {
+      GlobalLog.add('VideoViewerScreen: Failed to get streaming URL in _getStreamingUrl.');
+    } else {
+      GlobalLog.add('VideoViewerScreen: Streaming URL received in _getStreamingUrl: $streamingUrl');
+    }
+    return streamingUrl;
   }
 
   @override

@@ -142,9 +142,58 @@ class MainActivity : FlutterActivity() {
                 "startStreaming" -> handleStartStreaming(call, result)
                 "stopStreaming" -> handleStopStreaming(call, result)
                 "copy" -> handleCopyFile(call, result)
+                "startVideoPlaybackService" -> {
+                    val videoUrl = call.argument<String>("videoUrl")
+                    val position = call.argument<Int>("position")
+                    startVideoPlaybackService(videoUrl, position)
+                    result.success(null)
+                }
+                "stopVideoPlaybackService" -> {
+                    stopVideoPlaybackService()
+                    result.success(null)
+                }
+                "controlVideoPlayback" -> {
+                    val control = call.argument<String>("control")
+                    val position = call.argument<Int>("position")
+                    controlVideoPlayback(control, position)
+                    result.success(null)
+                }
+                "requestPosition" -> {
+                    requestPosition()
+                    result.success(null)
+                }
                 else -> result.notImplemented()
             }
         }
+    }
+
+    private fun startVideoPlaybackService(videoUrl: String?, position: Int?) {
+        val serviceIntent = Intent(this, VideoPlaybackService::class.java).apply {
+            putExtra("videoUrl", videoUrl)
+            putExtra("position", position)
+        }
+        startService(serviceIntent)
+    }
+
+    private fun stopVideoPlaybackService() {
+        val serviceIntent = Intent(this, VideoPlaybackService::class.java)
+        stopService(serviceIntent)
+    }
+
+    private fun controlVideoPlayback(control: String?, position: Int?) {
+        val intent = Intent(this, VideoPlaybackService::class.java).apply {
+            action = "CONTROL_ACTION"
+            putExtra("control", control)
+            position?.let { putExtra("position", it) }
+        }
+        startService(intent)
+    }
+
+    private fun requestPosition() {
+        val intent = Intent(this, VideoPlaybackService::class.java).apply {
+            action = "REQUEST_POSITION"
+        }
+        startService(intent)
     }
 
     private fun handleDownloadFile(call: MethodCall, result: MethodChannel.Result) {

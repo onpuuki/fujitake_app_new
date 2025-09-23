@@ -76,60 +76,33 @@ class _VideoViewerScreenState extends State<VideoViewerScreen> {
 
   Future<void> _initializePlayer() async {
     try {
-      VideoPlayerController controller;
-
+      String? streamingUrl;
       if (widget.localPath != null) {
-        // --- Start of new robust logic ---
-        print("ローカルビデオの初期化を開始: ${widget.localPath}");
-        final sourceFile = File(widget.localPath!);
-        
-        if (!await sourceFile.exists()) {
-          throw Exception("元の動画ファイルが見つかりません: ${widget.localPath}");
-        }
-
-        final tempDir = await getTemporaryDirectory();
-        final fileName = p.basename(widget.localPath!);
-        final tempPath = p.join(tempDir.path, fileName);
-        final tempFile = File(tempPath);
-
-        print("一時ファイルのパス: $tempPath");
-
-        // Copy the file to the temporary directory with error handling
-        try {
-          await sourceFile.copy(tempPath);
-          print("ファイルのキャッシュへのコピーが完了しました。");
-        } catch (e) {
-          print("ファイルのコピーに失敗しました: $e");
-          throw Exception("動画の再生準備に失敗しました（ファイルコピーエラー）。");
-        }
-        
-        controller = VideoPlayerController.file(tempFile);
-        // --- End of new logic ---
-
-      } else { // Remote file logic (unchanged)
-        final localPath = await CachePathService.instance.getLocalPath(widget.server!.id, widget.videoPath!);
-        final localFile = File(localPath);
-
-        if (await localFile.exists()) {
-          print("キャッシュから動画を再生します: $localPath");
-          controller = VideoPlayerController.file(localFile);
-        } else {
-          final String? streamingUrl = await _getStreamingUrl();
-          if (streamingUrl != null && streamingUrl.isNotEmpty) {
-            print("ストリーミングで動画を再生します: $streamingUrl");
-            controller = VideoPlayerController.networkUrl(Uri.parse(streamingUrl));
-          } else {
-            throw Exception("ストリーミングURLの取得に失敗しました。");
-          }
-        }
+        // ローカルファイルの場合は、将来的にはローカルHTTPサーバーを立てるなどの対応が必要かもしれませんが、
+        // 現状はSMB経由での再生を想定しているため、一度SMBのURLを取得します。
+        streamingUrl = await _getStreamingUrl();
+      } else {
+        streamingUrl = await _getStreamingUrl();
       }
 
-      await controller.initialize();
-      print("VideoPlayerControllerの初期化が完了。");
-      await controller.play();
+      if (streamingUrl == null || streamingUrl.isEmpty) {
+        throw Exception("ストリーミングURLの取得に失敗しました。");
+      }
+
+      // ネイティブのサービスを開始
+      await _smbChannel.invokeMethod('startVideoPlaybackService', {
+        'videoUrl': streamingUrl,
+        'position': 0, // 開始位置
+      });
+
+      // Flutter側のコントローラーは映像表示のみに利用するため、ミュートしておく
+      _controller = VideoPlayerController.networkUrl(Uri.parse(streamingUrl));
+      await _controller!.initialize();
+      await _controller!.setVolume(0.0); // 音声はネイティブ側で再生
+      await _controller!.play();
+
       if (mounted) {
         setState(() {
-          _controller = controller;
           _isLoading = false;
         });
       }

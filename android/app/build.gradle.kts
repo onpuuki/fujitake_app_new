@@ -49,6 +49,8 @@ dependencies {
     implementation("org.bouncycastle:bcprov-jdk18on:1.78")
     // Add slf4j-nop to satisfy JCIFS logging dependency without including a full logger
     implementation("org.slf4j:slf4j-nop:1.7.32")
+    implementation("com.google.android.exoplayer:exoplayer:2.18.1")
+    implementation("androidx.localbroadcastmanager:localbroadcastmanager:1.1.0")
 
     implementation("org.nanohttpd:nanohttpd:2.3.1")
     implementation("androidx.localbroadcastmanager:localbroadcastmanager:1.1.0")

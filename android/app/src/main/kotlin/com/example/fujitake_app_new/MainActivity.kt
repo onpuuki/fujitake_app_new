@@ -50,6 +50,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.bouncycastle.jce.provider.BouncyCastleProvider
 
+import java.util.zip.ZipInputStream
+import com.github.junrar.Archive
+import java.io.BufferedInputStream
 class MainActivity : FlutterActivity() {
     private val CHANNEL = "com.example.fujitake_app_new/smb"
 
@@ -143,6 +146,7 @@ class MainActivity : FlutterActivity() {
                 "listShares" -> handleListShares(call, result)
                 "listFiles" -> handleListFiles(call, result)
                 "downloadFile" -> handleDownloadFile(call, result)
+                "listArchiveFiles" -> handleListArchiveFiles(call, result)
                 "readFile" -> handleReadFile(call, result)
                 "enterPipMode" -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) enterPipMode()
                 "listAllFilesRecursive" -> handleListAllFilesRecursive(call, result)
@@ -325,10 +329,146 @@ class MainActivity : FlutterActivity() {
             try {
                 val files = listSmbFiles(host, shareName, directoryPath, username, password, domain)
                 withContext(Dispatchers.Main) { result.success(files) }
+
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) { result.error("SMB_ERROR", e.message, e.stackTraceToString()) }
             }
         }
+    }
+
+
+    private fun handleListArchiveFiles(call: MethodCall, result: MethodChannel.Result) {
+        val host = call.argument<String>("host")?.trim()
+        val shareName = call.argument<String>("shareName")?.trim()
+        val archivePath = call.argument<String>("archivePath")
+        val entryPath = call.argument<String>("entryPath") ?: ""
+        val username = call.argument<String>("username")
+        val password = call.argument<String>("password")
+        val domain = call.argument<String>("domain")
+
+        if (host.isNullOrBlank() || shareName.isNullOrBlank() || archivePath.isNullOrBlank()) {
+            result.error("INVALID_ARGUMENTS", "Host, shareName, and archivePath are required.", null)
+            return
+        }
+
+        scope.launch {
+            try {
+                val context = createCifsContext(domain, username, password)
+                val fullPath = "smb://$host/$shareName/$archivePath"
+                val smbFile = SmbFile(fullPath, context)
+
+                val files = when {
+                    archivePath.lowercase().endsWith(".zip") -> listZipEntries(smbFile, entryPath)
+                    archivePath.lowercase().endsWith(".rar") -> listRarEntries(smbFile, entryPath)
+                    else -> throw IllegalArgumentException("Unsupported archive type")
+                }
+                withContext(Dispatchers.Main) { result.success(files) }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) { result.error("ARCHIVE_ERROR", e.message, e.stackTraceToString()) }
+            }
+        }
+    }
+
+    private fun listZipEntries(smbFile: SmbFile, entryPath: String): List<Map<String, Any>> {
+        val files = mutableListOf<Map<String, Any>>()
+        val directories = mutableSetOf<String>()
+
+        ZipInputStream(BufferedInputStream(smbFile.inputStream)).use { zis ->
+            var entry = zis.nextEntry
+            while (entry != null) {
+                val entryName = entry.name
+                if (entryName.startsWith(entryPath)) {
+                    val relativePath = entryName.substring(entryPath.length)
+                    if (relativePath.isEmpty()) {
+                        entry = zis.nextEntry
+                        continue
+                    }
+                    
+                    val segments = relativePath.split('/').filter { it.isNotEmpty() }
+                    if (segments.isNotEmpty()) {
+                        val name = segments[0]
+                        val isDirectory = segments.size > 1 || entry.isDirectory
+                        
+                        val fullEntryPath = if (entryPath.isEmpty()) name else "$entryPath$name"
+
+                        if (isDirectory) {
+                            if (!directories.contains(name)) {
+                                files.add(mapOf(
+                                    "name" to name,
+                                    "isDirectory" to true,
+                                    "size" to 0,
+                                    "lastModified" to entry.time,
+                                    "path" to "${smbFile.path}:$fullEntryPath/"
+                                ))
+                                directories.add(name)
+                            }
+                        } else {
+                             if (segments.size == 1) {
+                                files.add(mapOf(
+                                    "name" to name,
+                                    "isDirectory" to false,
+                                    "size" to entry.size,
+                                    "lastModified" to entry.time,
+                                    "path" to "${smbFile.path}:$fullEntryPath"
+                                ))
+                            }
+                        }
+                    }
+                }
+                entry = zis.nextEntry
+            }
+        }
+        return files
+    }
+
+    private fun listRarEntries(smbFile: SmbFile, entryPath: String): List<Map<String, Any>> {
+        val files = mutableListOf<Map<String, Any>>()
+        val directories = mutableSetOf<String>()
+
+        // SmbFileInputStreamをArchiveコンストラクタに渡す
+        Archive(smbFile.inputStream).use { archive ->
+            for (fileHeader in archive.fileHeaders) {
+                if (fileHeader.isDirectory) continue
+
+                val entryName = fileHeader.fileName.replace("\\", "/")
+                if (entryName.startsWith(entryPath)) {
+                    val relativePath = entryName.substring(entryPath.length)
+                    if (relativePath.isEmpty()) continue
+
+                    val segments = relativePath.split('/').filter { it.isNotEmpty() }
+                    if (segments.isNotEmpty()) {
+                        val name = segments[0]
+                        val isDirectory = segments.size > 1 || fileHeader.isDirectory
+
+                        val fullEntryPath = if (entryPath.isEmpty()) name else "$entryPath$name"
+
+                        if (isDirectory) {
+                            if (!directories.contains(name)) {
+                                files.add(mapOf(
+                                    "name" to name,
+                                    "isDirectory" to true,
+                                    "size" to 0,
+                                    "lastModified" to fileHeader.mTime.time,
+                                    "path" to "${smbFile.path}:$fullEntryPath/"
+                                ))
+                                directories.add(name)
+                            }
+                        } else {
+                            if (segments.size == 1) {
+                                files.add(mapOf(
+                                    "name" to name,
+                                    "isDirectory" to false,
+                                    "size" to fileHeader.unpSize,
+                                    "lastModified" to fileHeader.mTime.time,
+                                    "path" to "${smbFile.path}:$fullEntryPath"
+                                ))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return files
     }
 
     private fun handleReadFile(call: MethodCall, result: MethodChannel.Result) {

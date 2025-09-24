@@ -43,16 +43,25 @@ class SmbNativeFile {
   factory SmbNativeFile.fromMap(Map<dynamic, dynamic> map, String currentPath) {
     final name = map['name'] as String? ?? '';
     
-    // ネイティブから'path'が提供されていれば、それを fullPath として優先する
     final String fullPath;
     if (map.containsKey('path') && map['path'] != null) {
       fullPath = map['path'] as String;
     } else {
-      String normalizedCurrentPath = currentPath.endsWith('/') ? currentPath : '$currentPath/';
-      if (currentPath.isEmpty) {
-        normalizedCurrentPath = '';
+      if (currentPath.contains(':')) {
+        // 圧縮ファイル内のパスの場合
+        final parts = currentPath.split(':');
+        final archivePath = parts[0];
+        final entryPath = parts.length > 1 ? parts[1] : '';
+        final newEntryPath = p.join(entryPath, name);
+        fullPath = '$archivePath:$newEntryPath';
+      } else {
+        // 通常のファイルパスの場合
+        String normalizedCurrentPath = currentPath.endsWith('/') ? currentPath : '$currentPath/';
+        if (currentPath.isEmpty) {
+          normalizedCurrentPath = '';
+        }
+        fullPath = normalizedCurrentPath + name;
       }
-      fullPath = normalizedCurrentPath + name;
     }
 
     return SmbNativeFile(
@@ -161,18 +170,33 @@ class _NasFileBrowserScreenState extends State<NasFileBrowserScreen> {
     GlobalLog.add('Listing files for path: "$path"');
 
     try {
-      final List<dynamic> files = await _smbChannel.invokeMethod('listFiles', {
-        'host': widget.server.host,
-        'shareName': widget.server.shareName,
-        'username': widget.server.username,
-        'password': widget.server.password,
-        'path': path,
-      });
+      final List<dynamic> files;
+      if (path.contains(':')) {
+        final parts = path.split(':');
+        final archivePath = parts[0];
+        final entryPath = parts.length > 1 ? parts[1] : '';
+        files = await _smbChannel.invokeMethod('listArchiveFiles', {
+          'host': widget.server.host,
+          'shareName': widget.server.shareName,
+          'username': widget.server.username,
+          'password': widget.server.password,
+          'archivePath': archivePath,
+          'entryPath': entryPath,
+        });
+      } else {
+        files = await _smbChannel.invokeMethod('listFiles', {
+          'host': widget.server.host,
+          'shareName': widget.server.shareName,
+          'username': widget.server.username,
+          'password': widget.server.password,
+          'path': path,
+        });
+      }
 
       setState(() {
         _files = files
             .map((file) => SmbNativeFile.fromMap(file, _currentPath))
-            .where((file) => file.name.isNotEmpty) // nameが空でないものだけをリストに追加
+            .where((file) => file.name.isNotEmpty)
             .toList();
         _isLoading = false;
         _sortFiles();
@@ -190,10 +214,21 @@ class _NasFileBrowserScreenState extends State<NasFileBrowserScreen> {
     return ['.mp4', '.mov', '.avi', '.mkv', '.wmv'].contains(extension);
   }
 
+  bool _isArchiveFile(String fileName) {
+    final extension = p.extension(fileName).toLowerCase();
+    return ['.zip', '.rar'].contains(extension);
+  }
+
+
   Future<void> _openFile(SmbNativeFile file) async {
     GlobalLog.add('Opening file: "${file.name}"');
     if (file.isDirectory) {
       _listFiles(path: file.fullPath);
+      return;
+    }
+
+    if (_isArchiveFile(file.name)) {
+      _listFiles(path: '${file.fullPath}:');
       return;
     }
 
@@ -248,9 +283,30 @@ class _NasFileBrowserScreenState extends State<NasFileBrowserScreen> {
   Future<bool> _onWillPop() async {
     GlobalLog.add('Navigating back from: "$_currentPath"');
     if (_currentPath.isNotEmpty) {
-      String parentPath = p.dirname(_currentPath);
-      if (parentPath == '.') {
-        parentPath = '';
+      String parentPath;
+      if (_currentPath.contains(':')) {
+        final parts = _currentPath.split(':');
+        final archiveFullPath = parts[0];
+        final entryPath = parts.length > 1 ? parts[1] : '';
+        
+        if (entryPath.isEmpty) {
+          // 圧縮ファイルのルートにいる場合、圧縮ファイルの親ディレクトリに戻る
+          parentPath = p.dirname(archiveFullPath);
+          if (parentPath == '.') parentPath = '';
+        } else {
+          // 圧縮ファイル内の親ディレクトリに戻る
+          final parentEntryPath = p.dirname(entryPath);
+          if (parentEntryPath == '.') {
+            parentPath = '$archiveFullPath:';
+          } else {
+            parentPath = '$archiveFullPath:$parentEntryPath';
+          }
+        }
+      } else {
+        parentPath = p.dirname(_currentPath);
+        if (parentPath == '.') {
+          parentPath = '';
+        }
       }
       _listFiles(path: parentPath);
       return false;
@@ -477,34 +533,108 @@ class _NasFileBrowserScreenState extends State<NasFileBrowserScreen> {
   }
 
   Widget _buildPathBreadcrumbs() {
-    List<Widget> pathWidgets = [
-      InkWell(
-        onTap: () => _listFiles(path: ''),
-        child: const Text('Home', style: TextStyle(color: Colors.blue, fontWeight: FontWeight.bold)),
-      )
-    ];
-    if (_currentPath.isNotEmpty) {
-      final pathSegments = p.split(_currentPath);
-      String currentCumulativePath = '';
-      for (int i = 0; i < pathSegments.length; i++) {
-        final segment = pathSegments[i];
-        if (segment.isEmpty) continue;
-        currentCumulativePath = p.join(currentCumulativePath, segment);
-        final isLast = i == pathSegments.length - 1;
-        
-        pathWidgets.add(const Text(' > '));
+    List<Widget> pathWidgets = [];
+    
+    if (_currentPath.contains(':')) {
+      // 圧縮ファイル内のパス表示
+      final parts = _currentPath.split(':');
+      final archiveFullPath = parts[0];
+      final entryPath = parts.length > 1 ? parts[1] : '';
+      
+      final archiveFileName = p.basename(archiveFullPath);
+
+      // NASのルートへのリンク
+      pathWidgets.add(
+        InkWell(
+          onTap: () => _listFiles(path: ''),
+          child: const Text('Home', style: TextStyle(color: Colors.blue, fontWeight: FontWeight.bold)),
+        )
+      );
+      pathWidgets.add(const Text(' > '));
+
+      // 圧縮ファイルまでのパス
+      final archiveDirectoryPath = p.dirname(archiveFullPath);
+      if (archiveDirectoryPath.isNotEmpty && archiveDirectoryPath != '.') {
         pathWidgets.add(
           InkWell(
-            onTap: isLast ? null : () => _listFiles(path: currentCumulativePath),
+            onTap: () => _listFiles(path: archiveDirectoryPath),
             child: Text(
-              segment,
-              style: TextStyle(
-                color: isLast ? Colors.black : Colors.blue,
-                fontWeight: isLast ? FontWeight.normal : FontWeight.bold,
-              ),
+              archiveDirectoryPath,
+              style: const TextStyle(color: Colors.blue, fontWeight: FontWeight.bold),
+              overflow: TextOverflow.ellipsis,
             ),
           )
         );
+        pathWidgets.add(const Text(' > '));
+      }
+
+      // 圧縮ファイル名
+      pathWidgets.add(
+        InkWell(
+          onTap: () => _listFiles(path: '$archiveFullPath:'),
+          child: Text(
+            archiveFileName,
+            style: const TextStyle(color: Colors.blue, fontWeight: FontWeight.bold),
+          ),
+        )
+      );
+
+      // 圧縮ファイル内のパス
+      if (entryPath.isNotEmpty) {
+        final pathSegments = p.split(entryPath);
+        String currentCumulativePath = '';
+        for (int i = 0; i < pathSegments.length; i++) {
+          final segment = pathSegments[i];
+          if (segment.isEmpty) continue;
+          currentCumulativePath = p.join(currentCumulativePath, segment);
+          final isLast = i == pathSegments.length - 1;
+          
+          pathWidgets.add(const Text(' > '));
+          pathWidgets.add(
+            InkWell(
+              onTap: isLast ? null : () => _listFiles(path: '$archiveFullPath:$currentCumulativePath'),
+              child: Text(
+                segment,
+                style: TextStyle(
+                  color: isLast ? Colors.black : Colors.blue,
+                  fontWeight: isLast ? FontWeight.normal : FontWeight.bold,
+                ),
+              ),
+            )
+          );
+        }
+      }
+    } else {
+      // 通常のパス表示
+      pathWidgets.add(
+        InkWell(
+          onTap: () => _listFiles(path: ''),
+          child: const Text('Home', style: TextStyle(color: Colors.blue, fontWeight: FontWeight.bold)),
+        )
+      );
+      if (_currentPath.isNotEmpty) {
+        final pathSegments = p.split(_currentPath);
+        String currentCumulativePath = '';
+        for (int i = 0; i < pathSegments.length; i++) {
+          final segment = pathSegments[i];
+          if (segment.isEmpty) continue;
+          currentCumulativePath = p.join(currentCumulativePath, segment);
+          final isLast = i == pathSegments.length - 1;
+          
+          pathWidgets.add(const Text(' > '));
+          pathWidgets.add(
+            InkWell(
+              onTap: isLast ? null : () => _listFiles(path: currentCumulativePath),
+              child: Text(
+                segment,
+                style: TextStyle(
+                  color: isLast ? Colors.black : Colors.blue,
+                  fontWeight: isLast ? FontWeight.normal : FontWeight.bold,
+                ),
+              ),
+            )
+          );
+        }
       }
     }
 

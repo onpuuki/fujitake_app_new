@@ -13,6 +13,7 @@ import android.os.PowerManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.localbroadcastmanager.content.LocalBroadcastManager
+import com.google.android.exoplayer2.C
 import com.google.android.exoplayer2.ExoPlayer
 import com.google.android.exoplayer2.MediaItem
 import com.google.android.exoplayer2.Player
@@ -20,12 +21,19 @@ import com.google.android.exoplayer2.PlaybackException
 
 class VideoPlaybackService : Service() {
 
-    private var exoPlayer: ExoPlayer? = null
-    private var wakeLock: PowerManager.WakeLock? = null
-
     companion object {
         private const val NOTIFICATION_ID = 2
         private const val CHANNEL_ID = "VideoPlaybackServiceChannel"
+        private var exoPlayer: ExoPlayer? = null
+
+        fun getPlayerInstance(context: Context): ExoPlayer {
+            if (exoPlayer == null) {
+                exoPlayer = ExoPlayer.Builder(context.applicationContext).build().apply {
+                    setWakeMode(C.WAKE_MODE_NETWORK)
+                }
+            }
+            return exoPlayer!!
+        }
     }
 
     override fun onCreate() {
@@ -35,50 +43,33 @@ class VideoPlaybackService : Service() {
         val notification = createNotification()
         startForeground(NOTIFICATION_ID, notification)
         sendDebugLog("onCreate - startForeground called.")
-
-        val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
-        wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "FujitakeApp::VideoPlaybackWakeLock")
         
-        initializePlayer()
+        // Get player instance and add listener
+        exoPlayer = getPlayerInstance(this)
+        exoPlayer?.addListener(playerListener)
         sendDebugLog("onCreate - Service created.")
     }
 
-    private fun initializePlayer() {
-        sendDebugLog("initializePlayer - Initializing player.")
-        exoPlayer = ExoPlayer.Builder(this).build()
-        exoPlayer?.addListener(object : Player.Listener {
-            override fun onPlaybackStateChanged(playbackState: Int) {
-                val stateString = when (playbackState) {
-                    Player.STATE_IDLE -> "IDLE"
-                    Player.STATE_BUFFERING -> "BUFFERING"
-                    Player.STATE_READY -> "READY"
-                    Player.STATE_ENDED -> "ENDED"
-                    else -> "UNKNOWN"
-                }
-                sendDebugLog("onPlaybackStateChanged: $stateString")
-                if (playbackState == Player.STATE_READY && exoPlayer?.playWhenReady == true) {
-                    acquireWakeLock()
-                } else if (playbackState == Player.STATE_ENDED) {
-                    releaseWakeLock()
-                }
+    private val playerListener = object : Player.Listener {
+        override fun onPlaybackStateChanged(playbackState: Int) {
+            val stateString = when (playbackState) {
+                Player.STATE_IDLE -> "IDLE"
+                Player.STATE_BUFFERING -> "BUFFERING"
+                Player.STATE_READY -> "READY"
+                Player.STATE_ENDED -> "ENDED"
+                else -> "UNKNOWN"
             }
+            sendDebugLog("onPlaybackStateChanged: $stateString")
+        }
 
-            override fun onIsPlayingChanged(isPlaying: Boolean) {
-                sendDebugLog("onIsPlayingChanged: $isPlaying")
-                if (isPlaying) {
-                    acquireWakeLock()
-                } else {
-                    releaseWakeLock()
-                }
-            }
+        override fun onIsPlayingChanged(isPlaying: Boolean) {
+            sendDebugLog("onIsPlayingChanged: $isPlaying")
+        }
 
-            override fun onPlayerError(error: PlaybackException) {
-                sendDebugLog("onPlayerError: ${error.message}")
-                sendDebugLog("Error details: ${error.stackTraceToString()}")
-                releaseWakeLock()
-            }
-        })
-        sendDebugLog("initializePlayer - Player initialized.")
+        override fun onPlayerError(error: PlaybackException) {
+            sendDebugLog("onPlayerError: ${error.message}")
+            sendDebugLog("Error details: ${error.stackTraceToString()}")
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -91,6 +82,11 @@ class VideoPlaybackService : Service() {
                 "seek" -> {
                     val position = intent.getIntExtra("position", 0)
                     exoPlayer?.seekTo(position.toLong())
+                }
+                "seek_relative" -> {
+                    val seconds = intent.getIntExtra("seconds", 0)
+                    val newPosition = (exoPlayer?.currentPosition ?: 0) + (seconds * 1000)
+                    exoPlayer?.seekTo(newPosition.coerceAtLeast(0))
                 }
             }
         } else {
@@ -118,9 +114,9 @@ class VideoPlaybackService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         sendDebugLog("onDestroy - Service destroying.")
+        exoPlayer?.removeListener(playerListener)
         exoPlayer?.release()
         exoPlayer = null
-        releaseWakeLock()
         sendDebugLog("onDestroy - Service destroyed.")
     }
 
@@ -149,19 +145,7 @@ class VideoPlaybackService : Service() {
             .build()
     }
 
-    private fun acquireWakeLock() {
-        if (wakeLock?.isHeld == false) {
-            wakeLock?.acquire()
-            sendDebugLog("WakeLock acquired.")
-        }
-    }
 
-    private fun releaseWakeLock() {
-        if (wakeLock?.isHeld == true) {
-            wakeLock?.release()
-            sendDebugLog("WakeLock released.")
-        }
-    }
 
     private fun sendDebugLog(message: String) {
         Log.d("VideoPlaybackService", message)

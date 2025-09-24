@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:video_player/video_player.dart';
+
 import 'package:path_provider/path_provider.dart';
 import '../services/cache_path_service.dart';
 import 'package:path/path.dart' as p;
@@ -24,13 +24,12 @@ class VideoViewerScreen extends StatefulWidget {
   @override
   State<VideoViewerScreen> createState() => _VideoViewerScreenState();
 }
-class _VideoViewerScreenState extends State<VideoViewerScreen> {
-  VideoPlayerController? _controller;
-  bool _isLoading = true;
+class _VideoViewerScreenState extends State<VideoViewerScreen> with WidgetsBindingObserver {
   String? _error;
   bool _showControls = true;
   bool _isInPipMode = false;
   Timer? _controlsTimer;
+  bool _isPlaying = true; // Assume playing starts automatically
 
   final MethodChannel _smbChannel = const MethodChannel('com.example.fujitake_app_new/smb');
 
@@ -41,6 +40,7 @@ class _VideoViewerScreenState extends State<VideoViewerScreen> {
     GlobalLog.add('VideoViewerScreen: initState');
     _smbChannel.setMethodCallHandler(_handleMethodCalls);
     _initializePlayer();
+    WidgetsBinding.instance.addObserver(this);
   }
 
   Future<void> _handleMethodCalls(MethodCall call) async {
@@ -78,81 +78,31 @@ class _VideoViewerScreenState extends State<VideoViewerScreen> {
 
   Future<void> _initializePlayer() async {
     try {
-      VideoPlayerController controller;
-
+      String? videoUrl;
       if (widget.localPath != null) {
-        // --- Start of new robust logic ---
-        print("ローカルビデオの初期化を開始: ${widget.localPath}");
-        final sourceFile = File(widget.localPath!);
-        
-        if (!await sourceFile.exists()) {
-          throw Exception("元の動画ファイルが見つかりません: ${widget.localPath}");
-        }
-
-        final tempDir = await getTemporaryDirectory();
-        final fileName = p.basename(widget.localPath!);
-        final tempPath = p.join(tempDir.path, fileName);
-        final tempFile = File(tempPath);
-
-        print("一時ファイルのパス: $tempPath");
-
-        // Copy the file to the temporary directory with error handling
-        try {
-          await sourceFile.copy(tempPath);
-          print("ファイルのキャッシュへのコピーが完了しました。");
-        } catch (e) {
-          print("ファイルのコピーに失敗しました: $e");
-          throw Exception("動画の再生準備に失敗しました（ファイルコピーエラー）。");
-        }
-        
-        controller = VideoPlayerController.file(tempFile);
-        // --- End of new logic ---
-
-      } else { // Remote file logic (unchanged)
-        final localPath = await CachePathService.instance.getLocalPath(widget.server!.id, widget.videoPath!);
-        final localFile = File(localPath);
-
-        if (await localFile.exists()) {
-          print("キャッシュから動画を再生します: $localPath");
-          controller = VideoPlayerController.file(localFile);
-        } else {
-          final String? streamingUrl = await _getStreamingUrl();
-          if (streamingUrl != null && streamingUrl.isNotEmpty) {
-            print("ストリーミングで動画を再生します: $streamingUrl");
-            controller = VideoPlayerController.networkUrl(Uri.parse(streamingUrl));
-          } else {
-            throw Exception("ストリーミングURLの取得に失敗しました。");
-          }
-        }
+        // Pass the local file path directly to the native side.
+        // Ensure the native side has permission to read it.
+        videoUrl = widget.localPath;
+      } else {
+        videoUrl = await _getStreamingUrl();
       }
 
-      await controller.initialize();
-      await controller.setVolume(0.0); // 映像プレーヤーをミュート
-      print("VideoPlayerControllerの初期化が完了。");
-
-      // 音声サービスを開始
-      if (controller.dataSourceType == DataSourceType.network) {
-        GlobalLog.add('VideoViewerScreen: Invoking startVideoPlaybackService with URL: ${controller.dataSource}');
-        await _smbChannel.invokeMethod('startVideoPlaybackService', {'videoUrl': controller.dataSource});
-      }
-
-      await controller.play();
-      if (mounted) {
-        setState(() {
-          _controller = controller;
-          _isLoading = false;
-        });
+      if (videoUrl != null) {
+        GlobalLog.add('VideoViewerScreen: Starting video playback with URL/path: $videoUrl');
+        await _smbChannel.invokeMethod('startVideoPlaybackService', {'videoUrl': videoUrl});
+        if (mounted) {
+          setState(() {
+            // Player is initialized on the native side, we just hide the loading indicator.
+          });
+        }
+      } else {
+        throw Exception("ビデオURLの取得に失敗しました。");
       }
     } catch (e, s) {
       print("動画の初期化中にエラーが発生: $e\n$s");
       if (mounted) {
         setState(() {
-          if (e is PlatformException) {
-            _error = '動画の読み込みに失敗しました (ネイティブエラー): ${e.message}\n${e.stacktrace}';
-          } else {
-            _error = '動画の読み込みに失敗しました: $e\n$s';
-          }
-          _isLoading = false;
+          _error = '動画の読み込みに失敗しました: $e';
         });
       }
     }
@@ -200,7 +150,6 @@ class _VideoViewerScreenState extends State<VideoViewerScreen> {
     
     _smbChannel.invokeMethod('stopVideoPlaybackService');
 
-    _controller?.dispose();
     SystemChrome.setPreferredOrientations([
       DeviceOrientation.portraitUp,
       DeviceOrientation.portraitDown,
@@ -239,286 +188,144 @@ class _VideoViewerScreenState extends State<VideoViewerScreen> {
           : AppBar(title: Text(p.basename(widget.localPath ?? widget.videoPath!))),
       backgroundColor: Colors.black,
       body: SafeArea(
-        child: _isLoading
-            ? const Center(child: CircularProgressIndicator())
-            : _error != null
-                ? Center(
-                    child: SingleChildScrollView(
-                      padding: const EdgeInsets.all(16.0),
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Text(
-                            _error!,
-                            style: const TextStyle(color: Colors.white, fontSize: 16),
-                          ),
-                          const SizedBox(height: 16),
-                          const Text(
-                            "--- 診断ログ ---",
-                            style: TextStyle(color: Colors.yellow, fontSize: 18, fontWeight: FontWeight.bold),
-                          ),
-                          const SizedBox(height: 8),
-                          Container(
-                            padding: const EdgeInsets.all(8.0),
-                            color: Colors.black.withOpacity(0.5),
-                            child: Text(
-                              GlobalLog.logs.join('\n'),
-                              style: const TextStyle(color: Colors.yellow, fontFamily: 'monospace'),
-                            ),
-                          ),
-                        ],
+        child: _error != null
+            ? Center(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        _error!,
+                        style: const TextStyle(color: Colors.white, fontSize: 16),
                       ),
-                    ),
-                  )
-                : OrientationBuilder(
-                    builder: (context, orientation) {
-                      return orientation == Orientation.portrait
-                          ? _buildPortraitLayout()
-                          : _buildLandscapeLayout();
-                    },
+                      const SizedBox(height: 16),
+                      const Text(
+                        "--- 診断ログ ---",
+                        style: TextStyle(color: Colors.yellow, fontSize: 18, fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 8),
+                      Container(
+                        padding: const EdgeInsets.all(8.0),
+                        color: Colors.black.withOpacity(0.5),
+                        child: Text(
+                          GlobalLog.logs.join('\n'),
+                          style: const TextStyle(color: Colors.yellow, fontFamily: 'monospace'),
+                        ),
+                      ),
+                    ],
                   ),
+                ),
+              )
+            : GestureDetector(
+                onTap: _toggleControls,
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    const AndroidView(viewType: 'video_player_view'),
+                    AnimatedOpacity(
+                      opacity: _showControls ? 1.0 : 0.0,
+                      duration: const Duration(milliseconds: 300),
+                      child: _buildControls(),
+                    ),
+                  ],
+                ),
+              ),
       ),
     );
   }
 
-  Widget _buildPortraitLayout() {
-    return Column(
+
+
+  Widget _buildControls() {
+    return Stack(
       children: [
-        Expanded(
-          child: GestureDetector(
-            onTap: _toggleControls,
-            child: Center(
-              child: AspectRatio(
-                aspectRatio: _controller!.value.aspectRatio,
-                child: VideoPlayer(_controller!),
+        Positioned.fill(
+          child: Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [Colors.black.withOpacity(0.6), Colors.transparent, Colors.black.withOpacity(0.6)],
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
               ),
             ),
           ),
         ),
-        _buildControls(isPortrait: true),
+        Center(
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              IconButton(
+                icon: const Icon(Icons.replay_10, color: Colors.white, size: 48),
+                onPressed: () => _seekRelative(const Duration(seconds: -10)),
+              ),
+              const SizedBox(width: 40),
+              IconButton(
+                icon: Icon(
+                  _isPlaying ? Icons.pause_circle_filled : Icons.play_circle_filled,
+                  color: Colors.white,
+                  size: 72,
+                ),
+                onPressed: _togglePlaying,
+              ),
+              const SizedBox(width: 40),
+              IconButton(
+                icon: const Icon(Icons.forward_10, color: Colors.white, size: 48),
+                onPressed: () => _seekRelative(const Duration(seconds: 10)),
+              ),
+            ],
+          ),
+        ),
+        Positioned(
+          left: 16,
+          right: 16,
+          bottom: 16,
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              IconButton(
+                icon: const Icon(Icons.picture_in_picture_alt, color: Colors.white),
+                onPressed: _togglePip,
+              ),
+              IconButton(
+                icon: Icon(
+                  MediaQuery.of(context).orientation == Orientation.portrait
+                      ? Icons.fullscreen
+                      : Icons.fullscreen_exit,
+                  color: Colors.white,
+                ),
+                onPressed: _toggleFullScreen,
+              ),
+            ],
+          ),
+        ),
       ],
     );
   }
 
-  Widget _buildLandscapeLayout() {
-    return GestureDetector(
-      onTap: _toggleControls,
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          Center(
-            child: AspectRatio(
-              aspectRatio: _controller!.value.aspectRatio,
-              child: VideoPlayer(_controller!),
-            ),
-          ),
-          AnimatedOpacity(
-            opacity: _showControls ? 1.0 : 0.0,
-            duration: const Duration(milliseconds: 300),
-            child: _buildControls(isPortrait: false),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildControls({required bool isPortrait}) {
-    if (isPortrait) {
-      // 縦画面用のコントロール
-      return Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Row(
-              children: [
-                ValueListenableBuilder(
-                  valueListenable: _controller!,
-                  builder: (context, VideoPlayerValue value, child) =>
-                      Text(_formatDuration(value.position)),
-                ),
-                Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 12.0),
-                    child: VideoProgressIndicator(
-                      _controller!,
-                      allowScrubbing: true,
-                    ),
-                  ),
-                ),
-                Text(_formatDuration(_controller!.value.duration)),
-              ],
-            ),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                // 左下のPiPアイコン
-                IconButton(
-                  icon: const Icon(Icons.picture_in_picture_alt),
-                  onPressed: _togglePip,
-                ),
-                // 中央の再生コントロール
-                Row(
-                  children: [
-                    IconButton(
-                      icon: const Icon(Icons.replay_10),
-                      iconSize: 32,
-                      onPressed: () => _seekRelative(const Duration(seconds: -10)),
-                    ),
-                    const SizedBox(width: 16),
-                    IconButton(
-                      icon: Icon(_controller!.value.isPlaying ? Icons.pause_circle_outline : Icons.play_circle_outline),
-                      iconSize: 48,
-                      onPressed: _togglePlaying,
-                    ),
-                    const SizedBox(width: 16),
-                    IconButton(
-                      icon: const Icon(Icons.forward_10),
-                      iconSize: 32,
-                      onPressed: () => _seekRelative(const Duration(seconds: 10)),
-                    ),
-                  ],
-                ),
-                // 右下の全画面アイコン
-                IconButton(
-                  icon: const Icon(Icons.fullscreen),
-                  onPressed: _toggleFullScreen,
-                ),
-              ],
-            ),
-          ],
-        ),
-      );
-    } else {
-      // 横画面用のオーバーレイコントロール
-      return Stack(
-        children: [
-          Positioned.fill(
-            child: Container(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [Colors.black.withOpacity(0.6), Colors.transparent, Colors.black.withOpacity(0.6)],
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                ),
-              ),
-            ),
-          ),
-          Center(
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                IconButton(
-                  icon: const Icon(Icons.replay_10, color: Colors.white, size: 48),
-                  onPressed: () => _seekRelative(const Duration(seconds: -10)),
-                ),
-                const SizedBox(width: 40),
-                IconButton(
-                  icon: Icon(
-                    _controller!.value.isPlaying ? Icons.pause_circle_filled : Icons.play_circle_filled,
-                    color: Colors.white,
-                    size: 72,
-                  ),
-                  onPressed: _togglePlaying,
-                ),
-                const SizedBox(width: 40),
-                IconButton(
-                  icon: const Icon(Icons.forward_10, color: Colors.white, size: 48),
-                  onPressed: () => _seekRelative(const Duration(seconds: 10)),
-                ),
-              ],
-            ),
-          ),
-          Positioned(
-            left: 16,
-            right: 16,
-            bottom: 16,
-            child: Row(
-              children: [
-                ValueListenableBuilder(
-                  valueListenable: _controller!,
-                  builder: (context, VideoPlayerValue value, child) =>
-                      Text(_formatDuration(value.position), style: const TextStyle(color: Colors.white)),
-                ),
-                Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 8.0),
-                    child: VideoProgressIndicator(
-                      _controller!,
-                      allowScrubbing: true,
-                      colors: const VideoProgressColors(
-                        playedColor: Colors.red,
-                        bufferedColor: Colors.white60,
-                        backgroundColor: Colors.white30,
-                      ),
-                    ),
-                  ),
-                ),
-                Text(_formatDuration(_controller!.value.duration), style: const TextStyle(color: Colors.white)),
-                IconButton(
-                  icon: const Icon(Icons.picture_in_picture_alt, color: Colors.white),
-                  onPressed: _togglePip,
-                ),
-                IconButton(
-                  icon: const Icon(Icons.fullscreen_exit, color: Colors.white),
-                  onPressed: _toggleFullScreen,
-                ),
-              ],
-            ),
-          ),
-        ],
-      );
-    }
-  }
-
-  String _formatDuration(Duration duration) {
-    String twoDigits(int n) => n.toString().padLeft(2, '0');
-    String twoDigitMinutes = twoDigits(duration.inMinutes.remainder(60));
-    String twoDigitSeconds = twoDigits(duration.inSeconds.remainder(60));
-    return "${duration.inHours > 0 ? '${duration.inHours}:' : ''}$twoDigitMinutes:$twoDigitSeconds";
-  }
-
   void _togglePlaying() {
-    if (_controller == null) return;
-    final bool isPlaying = _controller!.value.isPlaying;
-    if (isPlaying) {
-      _controller!.pause();
-      _smbChannel.invokeMethod('controlVideoPlayback', {'control': 'pause'});
-    } else {
-      _controller!.play();
-      _smbChannel.invokeMethod('controlVideoPlayback', {'control': 'play'});
-      _startControlsTimer();
-    }
-    setState(() {});
+    _smbChannel.invokeMethod('controlVideoPlayback', {'control': _isPlaying ? 'pause' : 'play'});
+    setState(() {
+      _isPlaying = !_isPlaying;
+    });
   }
 
-  Future<void> _seekRelative(Duration duration) async {
-    if (_controller == null) return;
-    final currentPosition = await _controller!.position;
-    if (currentPosition != null) {
-      final newPosition = currentPosition + duration;
-      await _controller!.seekTo(newPosition);
-      _smbChannel.invokeMethod('controlVideoPlayback', {
-        'control': 'seek',
-        'position': newPosition.inMilliseconds,
-      });
-    }
+  void _seekRelative(Duration duration) {
+    _smbChannel.invokeMethod('controlVideoPlayback', {'control': 'seek_relative', 'seconds': duration.inSeconds});
   }
 
   Future<void> _togglePip() async {
-    if (_controller != null) {
+    setState(() {
+      _showControls = false;
+    });
+    try {
+      await _smbChannel.invokeMethod('enterPipMode');
+    } on PlatformException catch (e) {
+      print("Error entering PiP mode: ${e.message}");
+      // エラーが発生した場合、状態を元に戻す
       setState(() {
-        _showControls = false;
+        _showControls = true;
       });
-      try {
-        await _smbChannel.invokeMethod('enterPipMode');
-      } on PlatformException catch (e) {
-        print("Error entering PiP mode: ${e.message}");
-        // エラーが発生した場合、状態を元に戻す
-        setState(() {
-          _showControls = true;
-        });
-      }
     }
   }
 

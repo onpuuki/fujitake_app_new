@@ -125,6 +125,13 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+
+        // Register the PlatformViewFactory
+        flutterEngine
+            .platformViewsController
+            .registry
+            .registerViewFactory("video_player_view", VideoPlatformViewFactory())
+
         methodChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
         Companion.methodChannel = methodChannel
 
@@ -145,7 +152,8 @@ class MainActivity : FlutterActivity() {
                 "controlVideoPlayback" -> {
                     val control = call.argument<String>("control")
                     val position = call.argument<Int>("position")
-                    controlVideoPlayback(control, position)
+                    val seconds = call.argument<Int>("seconds")
+                    controlVideoPlayback(control, position, seconds)
                     result.success(null)
                 }
                 "startVideoPlaybackService" -> {
@@ -179,12 +187,13 @@ class MainActivity : FlutterActivity() {
         sendDebugLog("MainActivity: startForegroundService/startService was called.")
     }
 
-    private fun controlVideoPlayback(control: String?, position: Int?) {
-        sendDebugLog("MainActivity: controlVideoPlayback called with control: $control, position: $position")
+    private fun controlVideoPlayback(control: String?, position: Int?, seconds: Int?) {
+        sendDebugLog("MainActivity: controlVideoPlayback called with control: $control, position: $position, seconds: $seconds")
         val intent = Intent(this, VideoPlaybackService::class.java).apply {
             action = "CONTROL_ACTION"
             putExtra("control", control)
-            putExtra("position", position ?: 0)
+            position?.let { putExtra("position", it) }
+            seconds?.let { putExtra("seconds", it) }
         }
         startService(intent)
     }

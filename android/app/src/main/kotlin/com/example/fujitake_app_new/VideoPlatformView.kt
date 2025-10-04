@@ -19,6 +19,7 @@ class VideoPlatformView(context: Context, id: Int, creationParams: Map<String?, 
 
     init {
         playerView.player = VideoPlaybackService.getPlayerInstance(context)
+        playerView.useController = false
     }
 
     override fun getView(): View {

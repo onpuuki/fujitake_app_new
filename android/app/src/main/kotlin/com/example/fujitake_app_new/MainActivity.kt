@@ -167,6 +167,17 @@ class MainActivity : FlutterActivity() {
                     result.success(null)
                 }
                 "checkForCrashReport" -> checkForCrashReport(this, result)
+                "getPlaybackPosition" -> {
+                    val player = VideoPlaybackService.getPlayerInstance(applicationContext)
+                    val position = player.currentPosition
+                    val duration = player.duration
+                    if (duration > 0) {
+                        val resultData = mapOf("position" to position, "duration" to duration)
+                        result.success(resultData)
+                    } else {
+                        result.success(null)
+                    }
+                }
                 else -> result.notImplemented()
             }
         }

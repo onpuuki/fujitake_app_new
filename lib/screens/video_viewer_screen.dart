@@ -30,6 +30,9 @@ class _VideoViewerScreenState extends State<VideoViewerScreen> with WidgetsBindi
   bool _isInPipMode = false;
   Timer? _controlsTimer;
   bool _isPlaying = true; // Assume playing starts automatically
+  Duration _position = Duration.zero;
+  Duration _duration = Duration.zero;
+  Timer? _positionTimer;
 
   final MethodChannel _smbChannel = const MethodChannel('com.example.fujitake_app_new/smb');
 
@@ -41,6 +44,7 @@ class _VideoViewerScreenState extends State<VideoViewerScreen> with WidgetsBindi
     _smbChannel.setMethodCallHandler(_handleMethodCalls);
     _initializePlayer();
     WidgetsBinding.instance.addObserver(this);
+    _positionTimer = Timer.periodic(const Duration(milliseconds: 500), (_) => _updatePosition());
   }
 
   Future<void> _handleMethodCalls(MethodCall call) async {
@@ -147,6 +151,7 @@ class _VideoViewerScreenState extends State<VideoViewerScreen> with WidgetsBindi
   void dispose() {
     GlobalLog.add('VideoViewerScreen: dispose');
     _controlsTimer?.cancel();
+    _positionTimer?.cancel();
     
     _smbChannel.invokeMethod('stopVideoPlaybackService');
 
@@ -183,7 +188,7 @@ class _VideoViewerScreenState extends State<VideoViewerScreen> with WidgetsBindi
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: _isInPipMode || (MediaQuery.of(context).orientation == Orientation.landscape && !_showControls)
+      appBar: _isInPipMode || MediaQuery.of(context).orientation == Orientation.landscape
           ? null
           : AppBar(title: Text(p.basename(widget.localPath ?? widget.videoPath!))),
       backgroundColor: Colors.black,
@@ -280,21 +285,54 @@ class _VideoViewerScreenState extends State<VideoViewerScreen> with WidgetsBindi
           left: 16,
           right: 16,
           bottom: 16,
-          child: Row(
+          child: Column(
             mainAxisAlignment: MainAxisAlignment.end,
             children: [
-              IconButton(
-                icon: const Icon(Icons.picture_in_picture_alt, color: Colors.white),
-                onPressed: _togglePip,
-              ),
-              IconButton(
-                icon: Icon(
-                  MediaQuery.of(context).orientation == Orientation.portrait
-                      ? Icons.fullscreen
-                      : Icons.fullscreen_exit,
-                  color: Colors.white,
-                ),
-                onPressed: _toggleFullScreen,
+              Row(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.only(left: 8.0),
+                    child: Text(
+                      _position.toString().split('.').first.padLeft(8, '0'),
+                      style: const TextStyle(color: Colors.white),
+                    ),
+                  ),
+                  Expanded(
+                    child: Slider(
+                      value: _position.inMilliseconds.toDouble().clamp(0.0, _duration.inMilliseconds.toDouble()),
+                      min: 0.0,
+                      max: _duration.inMilliseconds.toDouble(),
+                      onChanged: (value) {
+                        setState(() {
+                          _position = Duration(milliseconds: value.toInt());
+                        });
+                      },
+                      onChangeEnd: (value) {
+                        _seek(Duration(milliseconds: value.toInt()));
+                      },
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.only(right: 8.0),
+                    child: Text(
+                      _duration.toString().split('.').first.padLeft(8, '0'),
+                      style: const TextStyle(color: Colors.white),
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.picture_in_picture_alt, color: Colors.white),
+                    onPressed: _togglePip,
+                  ),
+                  IconButton(
+                    icon: Icon(
+                      MediaQuery.of(context).orientation == Orientation.portrait
+                          ? Icons.fullscreen
+                          : Icons.fullscreen_exit,
+                      color: Colors.white,
+                    ),
+                    onPressed: _toggleFullScreen,
+                  ),
+                ],
               ),
             ],
           ),
@@ -314,6 +352,10 @@ class _VideoViewerScreenState extends State<VideoViewerScreen> with WidgetsBindi
     _smbChannel.invokeMethod('controlVideoPlayback', {'control': 'seek_relative', 'seconds': duration.inSeconds});
   }
 
+
+  void _seek(Duration position) {
+    _smbChannel.invokeMethod('controlVideoPlayback', {'control': 'seek', 'position': position.inMilliseconds});
+  }
   Future<void> _togglePip() async {
     setState(() {
       _showControls = false;
@@ -343,6 +385,16 @@ class _VideoViewerScreenState extends State<VideoViewerScreen> with WidgetsBindi
         DeviceOrientation.portraitDown,
       ]);
       SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    }
+  }
+
+  Future<void> _updatePosition() async {
+    final Map? positionData = await _smbChannel.invokeMethod('getPlaybackPosition');
+    if (positionData != null && mounted) {
+      setState(() {
+        _position = Duration(milliseconds: positionData['position']);
+        _duration = Duration(milliseconds: positionData['duration']);
+      });
     }
   }
 }

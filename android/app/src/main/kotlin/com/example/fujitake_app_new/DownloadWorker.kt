@@ -82,8 +82,8 @@ class DownloadWorker(appContext: Context, workerParams: WorkerParameters) : Coro
             sendDebugLog("Download finished. Total downloaded: $downloadedSize / $totalSize")
             return Result.success()
         } catch (e: Exception) {
-            sendDebugLog("DownloadWorker failed: ${e.toString()}")
-            return Result.failure(workDataOf("error" to e.toString()))
+            sendDebugLog("DownloadWorker interrupted: ${e.toString()}")
+            return Result.failure()
         }
     }
 

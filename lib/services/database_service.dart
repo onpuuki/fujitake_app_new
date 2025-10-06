@@ -5,7 +5,7 @@ import '../models/cache_job_model.dart';
 
 class DatabaseService {
   static const _databaseName = "CacheManager.db";
-  static const _databaseVersion = 3; // バージョンを3に更新
+  static const _databaseVersion = 4; // バージョンを4に更新
 
   // --- Tables and Columns ---
   static const tableCacheJobs = 'cache_jobs';
@@ -18,6 +18,7 @@ class DatabaseService {
   static const columnDownloadedSize = 'downloaded_size';
   static const columnStatus = 'status'; // 'pending', 'downloading', 'completed', 'failed'
   static const columnCreatedAt = 'created_at';
+  static const columnUpdatedAt = 'updated_at';
 
   // Singleton instance
   DatabaseService._privateConstructor();
@@ -51,7 +52,8 @@ class DatabaseService {
         $columnTotalSize INTEGER NOT NULL DEFAULT 0,
         $columnDownloadedSize INTEGER NOT NULL DEFAULT 0,
         $columnStatus TEXT NOT NULL,
-        $columnCreatedAt INTEGER NOT NULL
+        $columnCreatedAt INTEGER NOT NULL,
+        $columnUpdatedAt INTEGER NOT NULL
       )
     ''');
   }
@@ -68,6 +70,13 @@ class DatabaseService {
       await db.execute('''
         ALTER TABLE $tableCacheJobs
         ADD COLUMN $columnShareName TEXT NOT NULL DEFAULT ''
+      ''');
+    }
+    if (oldVersion < 4) {
+      // Version 4へのアップグレード: updated_at カラムを追加
+      await db.execute('''
+        ALTER TABLE $tableCacheJobs
+        ADD COLUMN $columnUpdatedAt INTEGER NOT NULL DEFAULT 0
       ''');
     }
   }

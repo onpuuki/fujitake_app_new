@@ -10,6 +10,7 @@ import 'database_service.dart';
 import 'nas_server_service.dart';
 import 'package:path/path.dart' as p;
 import './debug_log_service.dart';
+import './global_log.dart';
 import 'cache_path_service.dart';
 
 class CacheDownloaderService {
@@ -22,11 +23,45 @@ class CacheDownloaderService {
 
 
   Future<void> _initialize() async {
-    // データベースから未完了のジョブをロードする
+    GlobalLog.add('[CacheDownloaderService] Initializing...');
+    // データベースから最新のジョブ情報を取得
     final incompleteJobs = await DatabaseService.instance.getIncompleteCacheJobs();
+    _jobs.clear();
     _jobs.addAll(incompleteJobs);
+    GlobalLog.add('[CacheDownloaderService] Loaded ${incompleteJobs.length} incomplete jobs.');
+
+    await resetTimeoutJobs();
+    _processPendingJobs();
+
     print('[CacheDownloaderService] Initialized with ${incompleteJobs.length} incomplete jobs.');
+    GlobalLog.add('[CacheDownloaderService] Initialization complete.');
     _smbChannel.setMethodCallHandler(_handleMethod);
+  }
+
+  Future<void> resetTimeoutJobs() async {
+    GlobalLog.add('[CacheDownloaderService] Checking for timeout jobs...');
+    // データベースから最新の未完了ジョブを取得
+    final incompleteJobs = await DatabaseService.instance.getIncompleteCacheJobs();
+    final now = DateTime.now();
+    int resetCount = 0;
+
+    // メモリ上のジョブリストをDBと同期
+    _jobs.clear();
+    _jobs.addAll(incompleteJobs);
+
+    for (var job in _jobs) {
+      if (job.status == 'downloading') {
+        final difference = now.difference(job.updatedAt);
+        GlobalLog.add('  - Job ${job.id}: status=${job.status}, updatedAt=${job.updatedAt}, difference=${difference.inSeconds} sec');
+        if (difference.inSeconds > 10) {
+          job.status = 'pending';
+          await DatabaseService.instance.updateCacheJob(job);
+          GlobalLog.add('    -> Reset to pending.');
+          resetCount++;
+        }
+      }
+    }
+    GlobalLog.add('[CacheDownloaderService] Timeout check complete. $resetCount jobs reset.');
   }
 
 
@@ -91,6 +126,7 @@ class CacheDownloaderService {
       }
 
       _updateJobStatus(jobToProcess, 'downloading');
+      jobToProcess.updatedAt = DateTime.now();
       await dbService.updateCacheJob(jobToProcess);
 
       final cachePathService = CachePathService.instance;

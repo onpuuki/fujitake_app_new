@@ -9,6 +9,7 @@ import '../models/nas_server_model.dart';
 import '../services/foreground_task_handler.dart';
 import 'image_viewer_screen.dart';
 import 'cache_list_screen.dart';
+import 'debug_log_screen.dart';
 import 'video_viewer_screen.dart';
 import '../models/cache_job_model.dart';
 import '../services/cache_downloader_service.dart';
@@ -389,6 +390,7 @@ class _NasFileBrowserScreenState extends State<NasFileBrowserScreen> {
                 context,
                 MaterialPageRoute(builder: (context) => const CacheListScreen()),
               );
+
             }
           },
           itemBuilder: (BuildContext context) => [
@@ -793,13 +795,15 @@ Future<img.Image?> _decodeImage(Uint8List bytes) async {
 
   Future<void> _startCaching(SmbNativeFile directory, {required bool recursive}) async {
     final path = p.join(_currentPath, directory.name);
+    final now = DateTime.now();
     final job = CacheJob(
         serverId: widget.server.id,
         shareName: _currentShare!,
         remotePath: path,
         recursive: recursive,
         status: 'pending',
-        createdAt: DateTime.now(),
+        createdAt: now,
+        updatedAt: now,
     );
 
     try {

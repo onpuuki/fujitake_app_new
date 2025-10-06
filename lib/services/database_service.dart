@@ -128,4 +128,17 @@ class DatabaseService {
     });
   }
 
+  Future<List<CacheJob>> getCacheJobsByStatus(String status) async {
+    final db = await database;
+    final List<Map<String, dynamic>> maps = await db.query(
+      tableCacheJobs,
+      where: '$columnStatus = ?',
+      whereArgs: [status],
+    );
+    return List.generate(maps.length, (i) {
+      return CacheJob.fromMap(maps[i]);
+    });
+  }
+
+
 }

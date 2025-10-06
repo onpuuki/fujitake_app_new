@@ -1,7 +1,8 @@
 import 'dart:isolate';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'cache_downloader_service.dart';
-import 'global_log.dart';
+import 'database_service.dart';
+import 'debug_log_service.dart';
 
 // トップレベル関数としてコールバックを定義
 @pragma('vm:entry-point')
@@ -21,15 +22,17 @@ class CacheDownloaderTaskHandler extends TaskHandler {
 
   @override
   void onRepeatEvent(DateTime timestamp) async {
-    GlobalLog.add('[TaskHandler] onRepeatEvent triggered at $timestamp');
+    DebugLogService().addLog('[TaskHandler] onRepeatEvent triggered at $timestamp');
     // タイムアウトしたジョブをリセット
     await _downloaderService.resetTimeoutJobs();
+    await _downloaderService.checkRunningJobsAndPauseIfNeeded();
+
 
     // 実行中のジョブ数を取得して通知を更新
-    final jobs = _downloaderService.getJobs();
+    final jobs = await DatabaseService.instance.getIncompleteCacheJobs();
     final processingJobs = jobs.where((j) => j.status == 'calculating' || j.status == 'downloading').length;
     final pendingJobs = jobs.where((j) => j.status == 'pending').length;
-    GlobalLog.add('[TaskHandler] Jobs: processing=$processingJobs, pending=$pendingJobs');
+    DebugLogService().addLog('[TaskHandler] Jobs: processing=$processingJobs, pending=$pendingJobs');
 
     if (processingJobs > 0 || pendingJobs > 0) {
        FlutterForegroundTask.updateService(
@@ -37,7 +40,7 @@ class CacheDownloaderTaskHandler extends TaskHandler {
         notificationText: '処理中: $processingJobs 件, 待機中: $pendingJobs 件',
       );
     } else {
-      GlobalLog.add('[TaskHandler] No more jobs to process. Stopping service.');
+      DebugLogService().addLog('[TaskHandler] No more jobs to process. Stopping service.');
       // すべてのジョブが完了したらサービスを停止
       FlutterForegroundTask.stopService();
     }

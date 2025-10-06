@@ -44,6 +44,15 @@ class DownloadWorker(appContext: Context, workerParams: WorkerParameters) : Coro
             val filesToDownload = listFilesRecursively(startSmbFile, recursive)
             sendDebugLog("Found ${filesToDownload.size} files to download.")
 
+            if (filesToDownload.isEmpty()) {
+                if (startSmbFile.isFile) {
+                     sendDebugLog("Target is a file, but was not found or could not be accessed.")
+                } else {
+                     sendDebugLog("No files found in the specified directory.")
+                }
+                return Result.failure(workDataOf("error" to "No files to download."))
+            }
+
             val totalSize = filesToDownload.sumOf { it.length() }
             var downloadedSize = filesToDownload.sumOf {
                 val relativePath = it.path.substringAfter("smb://$host/$shareName/")
@@ -60,6 +69,10 @@ class DownloadWorker(appContext: Context, workerParams: WorkerParameters) : Coro
             }
 
             for (file in filesToDownload) {
+                if (isStopped) {
+                    sendDebugLog("Worker is stopped, aborting download loop.")
+                    return Result.failure(workDataOf("error" to "Download cancelled"))
+                }
                 try {
                     val fileSize = file.length()
 
@@ -80,6 +93,11 @@ class DownloadWorker(appContext: Context, workerParams: WorkerParameters) : Coro
                                 val buffer = ByteArray(8192)
                                 var bytesRead: Int
                                 while (inputStream.read(buffer).also { bytesRead = it } != -1) {
+                                    if (isStopped) {
+                                        sendDebugLog("Download cancelled during file read.")
+                                        outputStream.close()
+                                        return Result.failure(workDataOf("error" to "Download cancelled"))
+                                    }
                                     outputStream.write(buffer, 0, bytesRead)
                                     downloadedSize += bytesRead
                                     setProgress(workDataOf("progress" to downloadedSize, "total" to totalSize))

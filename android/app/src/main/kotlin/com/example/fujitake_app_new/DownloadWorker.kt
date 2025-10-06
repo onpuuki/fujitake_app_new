@@ -44,32 +44,46 @@ class DownloadWorker(appContext: Context, workerParams: WorkerParameters) : Coro
             val filesToDownload = listFilesRecursively(startSmbFile, recursive)
             sendDebugLog("Found ${filesToDownload.size} files to download.")
 
-            var totalSize = 0L
-            var downloadedSize = 0L
+            val totalSize = filesToDownload.sumOf { it.length() }
+            var downloadedSize = filesToDownload.sumOf {
+                val relativePath = it.path.substringAfter("smb://$host/$shareName/")
+                val hashedFileName = sha256(relativePath) + ".png"
+                val localFile = File(localPathRoot, hashedFileName)
+                if (localFile.exists()) localFile.length() else 0L
+            }
 
-            // Initial progress update with 0 total size
-            setProgress(workDataOf("progress" to 0L, "total" to 0L))
+            setProgress(workDataOf("progress" to downloadedSize, "total" to totalSize))
+
+            if (totalSize > 0 && downloadedSize >= totalSize) {
+                sendDebugLog("Download already completed. Total size: $totalSize")
+                return Result.success()
+            }
 
             for (file in filesToDownload) {
                 try {
                     val fileSize = file.length()
-                    totalSize += fileSize
-                    sendDebugLog("File: ${file.name}, Size: $fileSize, New Total Size: $totalSize")
 
                     val relativePath = file.path.substringAfter("smb://$host/$shareName/")
                     val hashedFileName = sha256(relativePath) + ".png"
                     val localFile = File(localPathRoot, hashedFileName)
                     localFile.parentFile?.mkdirs()
 
-                    sendDebugLog("Downloading ${file.path} to ${localFile.path}")
-                    FileOutputStream(localFile).use { outputStream ->
-                        file.inputStream.use { inputStream ->
-                            val buffer = ByteArray(8192)
-                            var bytesRead: Int
-                            while (inputStream.read(buffer).also { bytesRead = it } != -1) {
-                                outputStream.write(buffer, 0, bytesRead)
-                                downloadedSize += bytesRead
-                                setProgress(workDataOf("progress" to downloadedSize, "total" to totalSize))
+                    val existingLength = if (localFile.exists()) localFile.length() else 0L
+
+                    if (existingLength < fileSize) {
+                        sendDebugLog("Downloading ${file.path} to ${localFile.path}")
+                        FileOutputStream(localFile, true).use { outputStream -> // append = true
+                            file.inputStream.use { inputStream ->
+                                if (existingLength > 0) {
+                                    inputStream.skip(existingLength)
+                                }
+                                val buffer = ByteArray(8192)
+                                var bytesRead: Int
+                                while (inputStream.read(buffer).also { bytesRead = it } != -1) {
+                                    outputStream.write(buffer, 0, bytesRead)
+                                    downloadedSize += bytesRead
+                                    setProgress(workDataOf("progress" to downloadedSize, "total" to totalSize))
+                                }
                             }
                         }
                     }

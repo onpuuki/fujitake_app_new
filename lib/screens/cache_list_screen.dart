@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'dart:async';
+import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import '../models/cache_job_model.dart';
 import '../services/database_service.dart';
 import '../services/cache_path_service.dart';
+import '../services/cache_downloader_service.dart';
 import './debug_log_screen.dart';
 
 class CacheListScreen extends StatefulWidget {
@@ -16,6 +18,7 @@ class _CacheListScreenState extends State<CacheListScreen> {
   List<CacheJob> _cacheJobs = [];
   Timer? _timer;
   bool _isLoading = true;
+  final CacheDownloaderService _cacheDownloaderService = CacheDownloaderService.instance;
 
   @override
   void initState() {
@@ -24,12 +27,24 @@ class _CacheListScreenState extends State<CacheListScreen> {
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
       _loadCacheJobs();
     });
+    _startForegroundTaskIfNeeded();
   }
 
   @override
   void dispose() {
     _timer?.cancel();
     super.dispose();
+  }
+
+  Future<void> _startForegroundTaskIfNeeded() async {
+    final jobs = await DatabaseService.instance.getIncompleteCacheJobs();
+    if (jobs.isNotEmpty && !await FlutterForegroundTask.isRunningService) {
+      await FlutterForegroundTask.startService(
+        notificationTitle: 'キャッシュダウンロード中',
+        notificationText: 'タップして詳細を確認',
+      );
+      _cacheDownloaderService.startPollingForForegroundTask();
+    }
   }
 
   void _loadCacheJobs({bool showLoading = false}) async {
@@ -93,7 +108,7 @@ class _CacheListScreenState extends State<CacheListScreen> {
                             backgroundColor: Colors.grey[300],
                           ),
                           const SizedBox(height: 4),
-                          Text('ステータス: ${job.status}'),
+                          Text('ステータス: ${_getStatusText(job.status)}'),
                           Text('進行状況: ${(job.downloadedSize / 1024 / 1024).toStringAsFixed(2)}MB / ${(job.totalSize / 1024 / 1024).toStringAsFixed(2)}MB'),
                         ],
                       ),
@@ -145,5 +160,22 @@ class _CacheListScreenState extends State<CacheListScreen> {
     );
   }
 }
+
+  String _getStatusText(String status) {
+    switch (status) {
+      case 'pending':
+        return '保留中';
+      case 'downloading':
+        return 'ダウンロード中';
+      case 'completed':
+        return '完了';
+      case 'failed':
+        return '失敗';
+      case 'waiting_for_wifi':
+        return 'WiFi接続待ち';
+      default:
+        return status;
+    }
+  }
 
 

@@ -46,6 +46,7 @@ dependencies:
   url_launcher: ^6.3.2
   receive_sharing_intent: ^1.8.1
   image_cropper: ^9.1.0 # ここに最新バージョンを記述
+  connectivity_plus: ^5.0.2
   cached_network_image: ^3.3.1
    # 新しく追加するパッケージ
   http: ^1.2.0 # HTTPリクエスト用

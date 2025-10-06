@@ -24,6 +24,7 @@ import 'package:fujitake_app_new/services/cache_path_service.dart';
 import 'package:image/image.dart' as img;
 import 'package:fujitake_app_new/utils/image_utils.dart';
 
+import 'nas_settings_screen.dart';
 // ネイティブから受け取るファイル情報を表すクラス
 class SmbNativeFile {
   final String name;
@@ -383,22 +384,15 @@ class _NasFileBrowserScreenState extends State<NasFileBrowserScreen> {
           tooltip: '並べ替え',
         ),
 
-        PopupMenuButton<String>(
-          onSelected: (value) {
-            if (value == 'cache_list') {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (context) => const CacheListScreen()),
-              );
-
-            }
+        IconButton(
+          icon: const Icon(Icons.settings),
+          onPressed: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => const NasSettingsScreen()),
+            );
           },
-          itemBuilder: (BuildContext context) => [
-            const PopupMenuItem<String>(
-              value: 'cache_list',
-              child: Text('キャッシュ管理'),
-            ),
-          ],
+          tooltip: '設定',
         ),
       ],
     );

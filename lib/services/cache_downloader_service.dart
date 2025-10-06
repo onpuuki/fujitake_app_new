@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'package:collection/collection.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/cache_job_model.dart';
 import '../models/nas_server_model.dart';
 import 'dart:io';
@@ -10,7 +12,6 @@ import 'database_service.dart';
 import 'nas_server_service.dart';
 import 'package:path/path.dart' as p;
 import './debug_log_service.dart';
-import './global_log.dart';
 import 'cache_path_service.dart';
 
 class CacheDownloaderService {
@@ -19,111 +20,109 @@ class CacheDownloaderService {
   }
   static final CacheDownloaderService instance = CacheDownloaderService._privateConstructor();
 
-  final List<CacheJob> _jobs = [];
-
+  StreamSubscription<ConnectivityResult>? _connectivitySubscription;
 
   Future<void> _initialize() async {
-    GlobalLog.add('[CacheDownloaderService] Initializing...');
-    // データベースから最新のジョブ情報を取得
-    final incompleteJobs = await DatabaseService.instance.getIncompleteCacheJobs();
-    _jobs.clear();
-    _jobs.addAll(incompleteJobs);
-    GlobalLog.add('[CacheDownloaderService] Loaded ${incompleteJobs.length} incomplete jobs.');
-
+    DebugLogService().addLog('[CacheDownloaderService] Initializing...');
     await resetTimeoutJobs();
     _processPendingJobs();
 
-    print('[CacheDownloaderService] Initialized with ${incompleteJobs.length} incomplete jobs.');
-    GlobalLog.add('[CacheDownloaderService] Initialization complete.');
+    _connectivitySubscription = Connectivity().onConnectivityChanged.listen((ConnectivityResult result) {
+      DebugLogService().addLog('[CacheDownloaderService] Connectivity changed: $result');
+      if (result == ConnectivityResult.wifi) {
+        _processWaitingForWifiJobs();
+      }
+    });
+
+    DebugLogService().addLog('[CacheDownloaderService] Initialization complete.');
     _smbChannel.setMethodCallHandler(_handleMethod);
   }
 
   Future<void> resetTimeoutJobs() async {
-    GlobalLog.add('[CacheDownloaderService] Checking for timeout jobs...');
-    // データベースから最新の未完了ジョブを取得
-    final incompleteJobs = await DatabaseService.instance.getIncompleteCacheJobs();
+    DebugLogService().addLog('[CacheDownloaderService] Checking for timeout jobs...');
+    final downloadingJobs = await DatabaseService.instance.getCacheJobsByStatus('downloading');
     final now = DateTime.now();
     int resetCount = 0;
 
-    // メモリ上のジョブリストをDBと同期
-    _jobs.clear();
-    _jobs.addAll(incompleteJobs);
-
-    for (var job in _jobs) {
-      if (job.status == 'downloading') {
-        final difference = now.difference(job.updatedAt);
-        GlobalLog.add('  - Job ${job.id}: status=${job.status}, updatedAt=${job.updatedAt}, difference=${difference.inSeconds} sec');
-        if (difference.inSeconds > 10) {
-          job.status = 'pending';
-          await DatabaseService.instance.updateCacheJob(job);
-          GlobalLog.add('    -> Reset to pending.');
-          resetCount++;
-        }
+    for (var job in downloadingJobs) {
+      final difference = now.difference(job.updatedAt);
+      DebugLogService().addLog('  - Job ${job.id}: status=${job.status}, updatedAt=${job.updatedAt}, difference=${difference.inSeconds} sec');
+      if (difference.inSeconds > 10) {
+        job.status = 'pending';
+        await DatabaseService.instance.updateCacheJob(job);
+        DebugLogService().addLog('    -> Reset to pending.');
+        resetCount++;
       }
     }
-    GlobalLog.add('[CacheDownloaderService] Timeout check complete. $resetCount jobs reset.');
+    DebugLogService().addLog('[CacheDownloaderService] Timeout check complete. $resetCount jobs reset.');
   }
-
 
   Future<void> addJob(CacheJob job) async {
-    // 既に同じジョブが存在しないかDBレベルでも確認することが望ましいが、まずはメモリでチェック
-    if (_jobs.any((j) => j.serverId == job.serverId && j.remotePath == job.remotePath)) {
-      print('Job already in queue for ${job.remotePath}');
-      return;
-    }
-
     try {
-      final id = await DatabaseService.instance.addCacheJob(job);
-      _jobs.add(job.copyWith(id: id));
-      print('Job added to DB and memory for ${job.remotePath}');
+      await DatabaseService.instance.addCacheJob(job);
+      DebugLogService().addLog('Job added to DB for ${job.remotePath}');
+      _processPendingJobs();
     } catch (e) {
-      print('Failed to add job: $e');
-      // 必要に応じてエラーハンドリング
+      DebugLogService().addLog('Failed to add job: $e');
     }
   }
-
-  List<CacheJob> getJobs() {
-    return List.unmodifiable(_jobs);
-  }
-
 
   static const _smbChannel = MethodChannel('com.example.fujitake_app_new/smb');
   final _nasServerService = NasServerService();
 
-
   Timer? _timer;
-  // フォアグラウンドタスクから呼び出されるポーリング開始メソッド
+
+  Future<void> onRepeat() async {
+    await resetTimeoutJobs();
+    await checkRunningJobsAndPauseIfNeeded();
+    await _processPendingJobs();
+  }
+
   void startPollingForForegroundTask() {
     if (_timer?.isActive ?? false) return;
-    // 即時実行し、その後5秒ごとに実行
-    _processPendingJobs();
+    DebugLogService().addLog('[CacheDownloaderService] Starting polling...');
+    onRepeat(); // Start immediately
     _timer = Timer.periodic(const Duration(seconds: 5), (_) {
-      _processPendingJobs();
+      onRepeat();
     });
   }
 
-  // フォアグラウンドタスクから呼び出されるポーリング停止メソッド
   Future<void> stopPollingForForegroundTask() async {
+    DebugLogService().addLog('[CacheDownloaderService] Stopping polling...');
     _timer?.cancel();
     _timer = null;
   }
 
   Future<void> _processPendingJobs() async {
-    final jobsToProcess = _jobs.where((j) => j.status == 'pending').toList();
+    DebugLogService().addLog('[CacheDownloaderService] _processPendingJobs started.');
+    final prefs = await SharedPreferences.getInstance();
+    final limitToWifi = prefs.getBool('limit_download_to_wifi') ?? false;
+    final connectivityResult = await Connectivity().checkConnectivity();
+    DebugLogService().addLog('[CacheDownloaderService] limitToWifi: $limitToWifi, connectivity: $connectivityResult');
+
+    final jobsToProcess = await DatabaseService.instance.getCacheJobsByStatus('pending');
+    DebugLogService().addLog('[CacheDownloaderService] Found ${jobsToProcess.length} pending jobs.');
 
     for (var job in jobsToProcess) {
+      DebugLogService().addLog('[CacheDownloaderService] Processing job ${job.id}.');
+      if (limitToWifi && connectivityResult != ConnectivityResult.wifi) {
+        job.status = 'waiting_for_wifi';
+        await DatabaseService.instance.updateCacheJob(job);
+        DebugLogService().addLog('[CacheDownloaderService] Job ${job.id} moved to waiting_for_wifi.');
+        continue;
+      }
+
       try {
-        final dbService = DatabaseService.instance;
         final server = await _nasServerService.getServerById(job.serverId);
         if (server == null) {
           throw Exception('Server not found for job: ${job.id}');
         }
 
-        _updateJobStatus(job, 'downloading');
+        job.status = 'downloading';
         job.updatedAt = DateTime.now();
-        await dbService.updateCacheJob(job);
+        await DatabaseService.instance.updateCacheJob(job);
+        DebugLogService().addLog('[CacheDownloaderService] Job ${job.id} status updated to downloading.');
 
-        final cachePathService = CachePathService.instance;
         final baseDir = await getApplicationSupportDirectory();
         final localPathRoot = p.join(baseDir.path, 'nas_cache', server.id);
 
@@ -139,28 +138,70 @@ class CacheDownloaderService {
         });
 
       } catch (e) {
-        print('Error processing cache job ${job.id}: $e');
-        _updateJobStatus(job, 'failed');
+        DebugLogService().addLog('Error processing cache job ${job.id}: $e');
+        job.status = 'failed';
         await DatabaseService.instance.updateCacheJob(job);
       }
+    }
+    DebugLogService().addLog('[CacheDownloaderService] _processPendingJobs finished.');
+  }
+
+  Future<void> _processWaitingForWifiJobs() async {
+    DebugLogService().addLog('[CacheDownloaderService] _processWaitingForWifiJobs called.');
+    final jobsToProcess = await DatabaseService.instance.getCacheJobsByStatus('waiting_for_wifi');
+    for (var job in jobsToProcess) {
+      job.status = 'pending';
+      await DatabaseService.instance.updateCacheJob(job);
+    }
+    if (jobsToProcess.isNotEmpty) {
+      _processPendingJobs();
+    }
+  }
+
+  Future<void> reprocessJobs() async {
+    DebugLogService().addLog('[CacheDownloaderService] reprocessJobs called.');
+    final jobsToReprocess = await DatabaseService.instance.getCacheJobsByStatus('waiting_for_wifi');
+    DebugLogService().addLog('[CacheDownloaderService] Found ${jobsToReprocess.length} jobs to reprocess.');
+    for (var job in jobsToReprocess) {
+      job.status = 'pending';
+      await DatabaseService.instance.updateCacheJob(job);
+      DebugLogService().addLog('[CacheDownloaderService] Job ${job.id} status updated to pending.');
+    }
+    if (jobsToReprocess.isNotEmpty) {
+      _processPendingJobs();
     }
   }
 
 
+  Future<void> _cancelDownload(int jobId) async {
+    try {
+      await _smbChannel.invokeMethod('cancelDownload', {'jobId': jobId.toString()});
+      DebugLogService().addLog('[CacheDownloaderService] Sent cancellation request for job $jobId.');
+    } catch (e) {
+      DebugLogService().addLog('[CacheDownloaderService] Error sending cancellation for job $jobId: $e');
+    }
+  }
 
-  void _updateJobStatus(CacheJob job, String newStatus) {
-    final index = _jobs.indexWhere((j) => j.id == job.id);
-    if (index != -1) {
-      final updatedJob = job.copyWith(status: newStatus);
-      _jobs[index] = updatedJob;
-      // メモリ上のジョブオブジェクトも更新する
-      if (job.id == _jobs[index].id) {
-          job.status = newStatus;
+  Future<void> checkRunningJobsAndPauseIfNeeded() async {
+    DebugLogService().addLog('[CacheDownloaderService] checkRunningJobsAndPauseIfNeeded called.');
+    final prefs = await SharedPreferences.getInstance();
+    final limitToWifi = prefs.getBool('limit_download_to_wifi') ?? false;
+    final connectivityResult = await Connectivity().checkConnectivity();
+
+    if (limitToWifi && connectivityResult != ConnectivityResult.wifi) {
+      final downloadingJobs = await DatabaseService.instance.getCacheJobsByStatus('downloading');
+      DebugLogService().addLog('[CacheDownloaderService] Found ${downloadingJobs.length} downloading jobs to pause.');
+      for (var job in downloadingJobs) {
+        job.status = 'waiting_for_wifi';
+        await DatabaseService.instance.updateCacheJob(job);
+        DebugLogService().addLog('[CacheDownloaderService] Job ${job.id} paused and moved to waiting_for_wifi.');
+        await _cancelDownload(job.id!);
       }
     }
   }
 
   Future<dynamic> _handleMethod(MethodCall call) async {
+    final dbService = DatabaseService.instance;
     switch (call.method) {
       case 'debugLog':
         final log = call.arguments as String;
@@ -168,36 +209,35 @@ class CacheDownloaderService {
         break;
       case 'downloadProgress':
         final args = call.arguments as Map<Object?, Object?>;
-        final jobId = args['jobId'] as String;
+        final jobId = int.parse(args['jobId'] as String);
         final progress = args['progress'] as int;
         final total = args['total'] as int;
-
-        final job = _jobs.firstWhereOrNull((j) => j.id.toString() == jobId);
-        if (job != null) {
-          job.downloadedSize = progress;
-          job.totalSize = total;
-          await DatabaseService.instance.updateCacheJob(job);
-          // UI update will be triggered by a separate stream/notifier if needed
-        }
+        // This can be frequent, so we don't fetch from DB but update directly
+        // A better approach might be to have a job object in memory and update it
+        await dbService.database.then((db) => db.rawUpdate(
+          'UPDATE cache_jobs SET downloaded_size = ?, total_size = ? WHERE _id = ?',
+          [progress, total, jobId]
+        ));
         break;
       case 'downloadState':
         final args = call.arguments as Map<Object?, Object?>;
-        final jobId = args['jobId'] as String;
+        final jobId = int.parse(args['jobId'] as String);
         final state = args['state'] as String;
         final error = args['error'] as String?;
 
-        final job = _jobs.firstWhereOrNull((j) => j.id.toString() == jobId);
-        if (job != null) {
-          if (state == 'SUCCEEDED') {
-            _updateJobStatus(job, 'completed');
-          } else if (state == 'FAILED') {
-            _updateJobStatus(job, 'failed');
-            if (error != null) {
-              print('Download failed for job ${job.id}: $error');
-              DebugLogService().addLog('Download failed for job ${job.id}: $error');
-            }
+        if (state == 'SUCCEEDED') {
+          await dbService.database.then((db) => db.rawUpdate(
+            'UPDATE cache_jobs SET status = ? WHERE _id = ?',
+            ['completed', jobId]
+          ));
+        } else if (state == 'FAILED') {
+          await dbService.database.then((db) => db.rawUpdate(
+            'UPDATE cache_jobs SET status = ? WHERE _id = ?',
+            ['failed', jobId]
+          ));
+          if (error != null) {
+            DebugLogService().addLog('Download failed for job $jobId: $error');
           }
-          await DatabaseService.instance.updateCacheJob(job);
         }
         break;
       default:

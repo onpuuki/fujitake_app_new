@@ -178,6 +178,15 @@ class MainActivity : FlutterActivity() {
                         result.success(null)
                     }
                 }
+                "cancelDownload" -> {
+                    val jobId = call.argument<String>("jobId")
+                    if (jobId != null) {
+                        WorkManager.getInstance(applicationContext).cancelAllWorkByTag(jobId)
+                        result.success(null)
+                    } else {
+                        result.error("INVALID_ARGUMENTS", "jobId is required", null)
+                    }
+                }
                 else -> result.notImplemented()
             }
         }

@@ -8,6 +8,7 @@ class CacheJob {
   int downloadedSize;
   String status;
   final DateTime createdAt;
+  DateTime updatedAt;
 
   CacheJob({
     this.id,
@@ -19,6 +20,7 @@ class CacheJob {
     this.downloadedSize = 0,
     required this.status,
     required this.createdAt,
+    required this.updatedAt,
   });
 
   Map<String, dynamic> toMap() {
@@ -31,6 +33,7 @@ class CacheJob {
       'downloaded_size': downloadedSize,
       'status': status,
       'created_at': createdAt.millisecondsSinceEpoch,
+      'updated_at': updatedAt.millisecondsSinceEpoch,
     };
   }
 
@@ -45,6 +48,7 @@ class CacheJob {
       downloadedSize: map['downloaded_size'],
       status: map['status'],
       createdAt: DateTime.fromMillisecondsSinceEpoch(map['created_at']),
+      updatedAt: DateTime.fromMillisecondsSinceEpoch(map['updated_at'] ?? map['created_at']),
     );
   }
 
@@ -58,6 +62,7 @@ class CacheJob {
     int? downloadedSize,
     String? status,
     DateTime? createdAt,
+    DateTime? updatedAt,
   }) {
     return CacheJob(
       id: id ?? this.id,
@@ -69,6 +74,7 @@ class CacheJob {
       downloadedSize: downloadedSize ?? this.downloadedSize,
       status: status ?? this.status,
       createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
     );
   }
 }

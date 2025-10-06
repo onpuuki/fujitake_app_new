@@ -90,7 +90,7 @@ class CacheDownloaderService {
   static const _smbChannel = MethodChannel('com.example.fujitake_app_new/smb');
   final _nasServerService = NasServerService();
 
-  bool _isProcessing = false;
+
   Timer? _timer;
   // フォアグラウンドタスクから呼び出されるポーリング開始メソッド
   void startPollingForForegroundTask() {
@@ -109,51 +109,40 @@ class CacheDownloaderService {
   }
 
   Future<void> _processPendingJobs() async {
-    if (_isProcessing) return;
-    _isProcessing = true;
+    final jobsToProcess = _jobs.where((j) => j.status == 'pending').toList();
 
-    final jobToProcess = _jobs.firstWhereOrNull((j) => j.status == 'pending');
-    if (jobToProcess == null) {
-      _isProcessing = false;
-      return;
-    }
+    for (var job in jobsToProcess) {
+      try {
+        final dbService = DatabaseService.instance;
+        final server = await _nasServerService.getServerById(job.serverId);
+        if (server == null) {
+          throw Exception('Server not found for job: ${job.id}');
+        }
 
-    try {
-      final dbService = DatabaseService.instance;
-      final server = await _nasServerService.getServerById(jobToProcess.serverId);
-      if (server == null) {
-        throw Exception('Server not found for job: ${jobToProcess.id}');
+        _updateJobStatus(job, 'downloading');
+        job.updatedAt = DateTime.now();
+        await dbService.updateCacheJob(job);
+
+        final cachePathService = CachePathService.instance;
+        final baseDir = await getApplicationSupportDirectory();
+        final localPathRoot = p.join(baseDir.path, 'nas_cache', server.id);
+
+        await _smbChannel.invokeMethod('downloadFile', {
+          'jobId': job.id.toString(),
+          'host': server.host,
+          'shareName': job.shareName,
+          'username': server.username,
+          'password': server.password,
+          'remotePath': job.remotePath,
+          'localPathRoot': localPathRoot,
+          'recursive': job.recursive,
+        });
+
+      } catch (e) {
+        print('Error processing cache job ${job.id}: $e');
+        _updateJobStatus(job, 'failed');
+        await DatabaseService.instance.updateCacheJob(job);
       }
-
-      _updateJobStatus(jobToProcess, 'downloading');
-      jobToProcess.updatedAt = DateTime.now();
-      await dbService.updateCacheJob(jobToProcess);
-
-      final cachePathService = CachePathService.instance;
-      final baseDir = await getApplicationSupportDirectory();
-      final localPathRoot = p.join(baseDir.path, 'nas_cache', server.id);
-
-      await _smbChannel.invokeMethod('downloadFile', {
-        'jobId': jobToProcess.id.toString(),
-        'host': server.host,
-        'shareName': jobToProcess.shareName,
-        'username': server.username,
-        'password': server.password,
-        'remotePath': jobToProcess.remotePath,
-        'localPathRoot': localPathRoot,
-        'recursive': jobToProcess.recursive,
-      });
-
-      // The job is now running in the background.
-      // We can't mark it as completed here.
-      // The status will be updated by the native side.
-
-    } catch (e) {
-      print('Error processing cache job ${jobToProcess.id}: $e');
-      _updateJobStatus(jobToProcess, 'failed');
-      await DatabaseService.instance.updateCacheJob(jobToProcess);
-    } finally {
-      _isProcessing = false;
     }
   }
 

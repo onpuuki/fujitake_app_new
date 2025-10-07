@@ -2,6 +2,7 @@ package com.example.fujitake_app_new
 
 import android.content.Context
 import android.util.Log
+import android.os.PowerManager
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
@@ -18,12 +19,28 @@ import java.util.Properties
 
 class DownloadWorker(appContext: Context, workerParams: WorkerParameters) : CoroutineWorker(appContext, workerParams) {
 
+    private val powerManager = appContext.getSystemService(Context.POWER_SERVICE) as PowerManager
+    private val wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "FujitakeApp::DownloadWakelock")
+
     private suspend fun sendDebugLog(message: String) {
         Log.d("DownloadWorker", message)
         setProgress(workDataOf("log" to message))
     }
 
     override suspend fun doWork(): Result {
+        wakeLock.acquire(30 * 60 * 1000L /* 30 minutes timeout */)
+        sendDebugLog("Wakelock acquired.")
+        try {
+            return downloadFiles()
+        } finally {
+            if (wakeLock.isHeld) {
+                wakeLock.release()
+                sendDebugLog("Wakelock released.")
+            }
+        }
+    }
+
+    private suspend fun downloadFiles(): Result {
         val host = inputData.getString("host") ?: return Result.failure()
         val shareName = inputData.getString("shareName") ?: return Result.failure()
         val remotePath = inputData.getString("remotePath") ?: return Result.failure()

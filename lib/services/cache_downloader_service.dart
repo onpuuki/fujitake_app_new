@@ -47,7 +47,7 @@ class CacheDownloaderService {
     for (var job in downloadingJobs) {
       final difference = now.difference(job.updatedAt);
       DebugLogService().addLog('  - Job ${job.id}: status=${job.status}, updatedAt=${job.updatedAt}, difference=${difference.inSeconds} sec');
-      if (difference.inSeconds > 10) {
+      if (difference.inSeconds > 30) {
         job.status = 'pending';
         await DatabaseService.instance.updateCacheJob(job);
         DebugLogService().addLog('    -> Reset to pending.');

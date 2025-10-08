@@ -53,5 +53,6 @@ dependencies {
     implementation("org.nanohttpd:nanohttpd:2.3.1")
     implementation("androidx.localbroadcastmanager:localbroadcastmanager:1.1.0")
     implementation("com.google.android.exoplayer:exoplayer:2.18.1")
+    implementation("com.github.junrar:junrar:7.5.5")
 }
 

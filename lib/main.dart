@@ -90,9 +90,9 @@ void _initForegroundTask() {
       channelName: 'Cache Download Service',
     ),
     iosNotificationOptions: const IOSNotificationOptions(),
-    foregroundTaskOptions: ForegroundTaskOptions(
-      eventAction: ForegroundTaskEventAction.repeat(5000),
-    ),
+    foregroundTaskOptions: const ForegroundTaskOptions(
+        interval: 5000,
+      ),
   );
 }
 

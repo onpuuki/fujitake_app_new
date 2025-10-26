@@ -91,7 +91,7 @@ void _initForegroundTask() {
     ),
     iosNotificationOptions: const IOSNotificationOptions(),
     foregroundTaskOptions: ForegroundTaskOptions(
-      eventAction: ForegroundTaskEventAction.repeat(5000),
+      interval: 5000,
     ),
   );
 }

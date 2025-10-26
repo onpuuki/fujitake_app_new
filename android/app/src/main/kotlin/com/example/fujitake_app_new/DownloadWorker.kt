@@ -1,21 +1,25 @@
 package com.example.fujitake_app_new
 
 import android.content.Context
-import android.util.Log
 import android.os.PowerManager
+import android.util.Log
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
-import jcifs.CIFSContext
-import jcifs.config.PropertyConfiguration
-import jcifs.context.BaseContext
-import jcifs.smb.NtlmPasswordAuthenticator
-import jcifs.smb.SmbException
-import jcifs.smb.SmbFile
+import com.hierynomus.msdtyp.AccessMask
+import com.hierynomus.msfscc.FileAttributes
+import com.hierynomus.mssmb2.SMB2CreateDisposition
+import com.hierynomus.mssmb2.SMB2ShareAccess
+import com.hierynomus.smbj.SMBClient
+import com.hierynomus.smbj.auth.AuthenticationContext
+import com.hierynomus.smbj.share.DiskShare
 import java.io.File
 import java.io.FileOutputStream
 import java.security.MessageDigest
-import java.util.Properties
+import java.util.EnumSet
+
+// SmbFileというエイリアスが競合するため、com.hierynomus.smbj.share.FileをSmbFileとして使用
+import com.hierynomus.smbj.share.File as SmbFile
 
 class DownloadWorker(appContext: Context, workerParams: WorkerParameters) : CoroutineWorker(appContext, workerParams) {
 
@@ -53,87 +57,105 @@ class DownloadWorker(appContext: Context, workerParams: WorkerParameters) : Coro
         sendDebugLog("DownloadWorker started for path: $remotePath")
 
         try {
-            val cifsContext = createCifsContext(domain, username, password)
-            val safeRemotePath = if (recursive && !remotePath.endsWith("/")) "$remotePath/" else remotePath
-            val startSmbFile = SmbFile("smb://$host/$shareName/$safeRemotePath", cifsContext)
+            val client = SMBClient()
+            client.connect(host).use { connection ->
+                val authContext = AuthenticationContext(username, password?.toCharArray(), domain)
+                val session = connection.authenticate(authContext)
+                (session.connectShare(shareName) as? DiskShare)?.use { share ->
+                    sendDebugLog("Successfully connected to share: $shareName")
+                    val filesToDownload = listFilesRecursively(share, remotePath, recursive)
+                    sendDebugLog("Found ${filesToDownload.size} files to download.")
 
-            sendDebugLog("Listing files from: ${startSmbFile.path}")
-            val filesToDownload = listFilesRecursively(startSmbFile, recursive)
-            sendDebugLog("Found ${filesToDownload.size} files to download.")
+                    if (filesToDownload.isEmpty()) {
+                        sendDebugLog("No files found to download.")
+                        return Result.failure(workDataOf("error" to "No files to download."))
+                    }
 
-            if (filesToDownload.isEmpty()) {
-                if (startSmbFile.isFile) {
-                     sendDebugLog("Target is a file, but was not found or could not be accessed.")
-                } else {
-                     sendDebugLog("No files found in the specified directory.")
-                }
-                return Result.failure(workDataOf("error" to "No files to download."))
-            }
+                    val totalSize = filesToDownload.sumOf { it.first }
+                    var downloadedSize = 0L
+                    sendDebugLog("Total download size: $totalSize")
 
-            val totalSize = filesToDownload.sumOf { it.length() }
-            var downloadedSize = filesToDownload.sumOf {
-                val relativePath = it.path.substringAfter("smb://$host/$shareName/")
-                val hashedFileName = sha256(relativePath) + ".png"
-                val localFile = File(localPathRoot, hashedFileName)
-                if (localFile.exists()) localFile.length() else 0L
-            }
+                    for ((size, path) in filesToDownload) {
+                        if (isStopped) {
+                            sendDebugLog("Worker is stopped, aborting download loop.")
+                            return Result.failure(workDataOf("error" to "Download cancelled"))
+                        }
+                        
+                        val hashedFileName = sha256(path) + ".png"
+                        val localFile = File(localPathRoot, hashedFileName)
+                        localFile.parentFile?.mkdirs()
 
-            setProgress(workDataOf("progress" to downloadedSize, "total" to totalSize))
+                        val existingLength = if (localFile.exists()) localFile.length() else 0L
 
-            if (totalSize > 0 && downloadedSize >= totalSize) {
-                sendDebugLog("Download already completed. Total size: $totalSize")
-                return Result.success()
-            }
+                        if (existingLength >= size) {
+                            sendDebugLog("File already downloaded: $path")
+                            downloadedSize += existingLength
+                            setProgress(workDataOf("progress" to downloadedSize, "total" to totalSize))
+                            continue
+                        }
 
-            for (file in filesToDownload) {
-                if (isStopped) {
-                    sendDebugLog("Worker is stopped, aborting download loop.")
-                    return Result.failure(workDataOf("error" to "Download cancelled"))
-                }
-                try {
-                    val fileSize = file.length()
-
-                    val relativePath = file.path.substringAfter("smb://$host/$shareName/")
-                    val hashedFileName = sha256(relativePath) + ".png"
-                    val localFile = File(localPathRoot, hashedFileName)
-                    localFile.parentFile?.mkdirs()
-
-                    val existingLength = if (localFile.exists()) localFile.length() else 0L
-
-                    if (existingLength < fileSize) {
-                        sendDebugLog("Downloading ${file.path} to ${localFile.path}")
-                        FileOutputStream(localFile, true).use { outputStream -> // append = true
-                            file.inputStream.use { inputStream ->
-                                if (existingLength > 0) {
-                                    inputStream.skip(existingLength)
-                                }
-                                val buffer = ByteArray(8192)
-                                var bytesRead: Int
-                                while (inputStream.read(buffer).also { bytesRead = it } != -1) {
-                                    if (isStopped) {
-                                        sendDebugLog("Download cancelled during file read.")
-                                        outputStream.close()
-                                        return Result.failure(workDataOf("error" to "Download cancelled"))
+                        try {
+                            sendDebugLog("Downloading $path to ${localFile.path}")
+                            share.openFile(path, EnumSet.of(AccessMask.GENERIC_READ), null, SMB2ShareAccess.ALL, SMB2CreateDisposition.FILE_OPEN, null).use { file ->
+                                FileOutputStream(localFile, true).use { outputStream ->
+                                    file.inputStream.use { inputStream ->
+                                        if (existingLength > 0) {
+                                            inputStream.skip(existingLength)
+                                        }
+                                        val buffer = ByteArray(8192)
+                                        var bytesRead: Int
+                                        while (inputStream.read(buffer).also { bytesRead = it } != -1) {
+                                            if (isStopped) {
+                                                sendDebugLog("Download cancelled during file read.")
+                                                return Result.failure(workDataOf("error" to "Download cancelled"))
+                                            }
+                                            outputStream.write(buffer, 0, bytesRead)
+                                            downloadedSize += bytesRead
+                                            setProgress(workDataOf("progress" to downloadedSize, "total" to totalSize))
+                                        }
                                     }
-                                    outputStream.write(buffer, 0, bytesRead)
-                                    downloadedSize += bytesRead
-                                    setProgress(workDataOf("progress" to downloadedSize, "total" to totalSize))
                                 }
                             }
+                            sendDebugLog("Finished downloading $path")
+                        } catch (e: Exception) {
+                            sendDebugLog("Error processing file $path: ${e.message}")
                         }
                     }
-                    sendDebugLog("Finished downloading ${file.path}")
-                } catch (e: Exception) {
-                    sendDebugLog("Error processing file ${file.name}: ${e.message}")
+                    sendDebugLog("Download finished. Total downloaded: $downloadedSize / $totalSize")
+                    return Result.success()
                 }
             }
-
-            sendDebugLog("Download finished. Total downloaded: $downloadedSize / $totalSize")
-            return Result.success()
+            return Result.failure(workDataOf("error" to "Failed to connect to share."))
         } catch (e: Exception) {
-            sendDebugLog("DownloadWorker interrupted: ${e.toString()}")
-            return Result.failure()
+            sendDebugLog("DownloadWorker error: ${e.message}\n${e.stackTraceToString()}")
+            return Result.failure(workDataOf("error" to e.message))
         }
+    }
+
+    private suspend fun listFilesRecursively(share: DiskShare, path: String, recursive: Boolean): List<Pair<Long, String>> {
+        val fileList = mutableListOf<Pair<Long, String>>()
+        
+        try {
+            if (share.folderExists(path)) {
+                val files = share.list(path, "*")
+                for (f in files) {
+                    val fullPath = if (path.isEmpty()) f.fileName else "$path\\${f.fileName}"
+                    if ((f.fileAttributes and FileAttributes.FILE_ATTRIBUTE_DIRECTORY.value) != 0L) {
+                        if (recursive) {
+                            fileList.addAll(listFilesRecursively(share, fullPath, true))
+                        }
+                    } else {
+                        fileList.add(Pair(f.endOfFile, fullPath))
+                    }
+                }
+            } else if (share.fileExists(path)) {
+                val fileInfo = share.list(path).first()
+                fileList.add(Pair(fileInfo.endOfFile, path))
+            }
+        } catch (e: Exception) {
+            sendDebugLog("Error listing files in '$path': ${e.message}")
+        }
+        return fileList
     }
 
     private fun sha256(input: String): String {
@@ -141,47 +163,5 @@ class DownloadWorker(appContext: Context, workerParams: WorkerParameters) : Coro
         val md = MessageDigest.getInstance("SHA-256")
         val digest = md.digest(bytes)
         return digest.fold("") { str, it -> str + "%02x".format(it) }
-    }
-
-    private fun listFilesRecursively(startFile: SmbFile, recursive: Boolean): List<SmbFile> {
-        val fileList = mutableListOf<SmbFile>()
-        try {
-            if (startFile.isDirectory) {
-                val files = startFile.listFiles()
-                for (file in files) {
-                    try {
-                        if (file.isDirectory && recursive) {
-                            fileList.addAll(listFilesRecursively(file, true))
-                        } else if (!file.isDirectory) {
-                            fileList.add(file)
-                        }
-                    } catch (e: Exception) {
-                        // Log or handle error for individual file/directory
-                    }
-                }
-            } else {
-                fileList.add(startFile)
-            }
-        } catch (e: Exception) {
-            // Log or handle error for the starting file/directory
-        }
-        return fileList
-    }
-
-    private fun createCifsContext(domain: String?, username: String?, password: String?): CIFSContext {
-        val props = Properties()
-        props["jcifs.smb.client.soTimeout"] = "35000"
-        props["jcifs.smb.client.responseTimeout"] = "35000"
-        props["jcifs.smb.client.minVersion"] = "SMB202"
-        props["jcifs.smb.client.maxVersion"] = "SMB311"
-        props["jcifs.smb.client.ipcSigningEnforced"] = "false"
-        props["jcifs.smb.client.signingEnforced"] = "false"
-        props["jcifs.smb.client.smb2.signingEnforced"] = "false"
-        props["jcifs.smb.client.useSMB21"] = "true"
-        props["jcifs.smb.client.dfs.disabled"] = "true"
-        props["jcifs.encoding"] = "UTF-8"
-        val config = PropertyConfiguration(props)
-        val baseContext = BaseContext(config)
-        return baseContext.withCredentials(NtlmPasswordAuthenticator(domain, username, password))
     }
 }

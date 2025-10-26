@@ -15,14 +15,15 @@ class CacheDownloaderTaskHandler extends TaskHandler {
   SendPort? _sendPort;
 
   @override
-  Future<void> onStart(DateTime timestamp, TaskStarter starter) async {
+  Future<void> onStart(DateTime timestamp, SendPort? sendPort) async {
+    _sendPort = sendPort;
     // サービスのポーリングを開始
     _downloaderService.startPollingForForegroundTask();
   }
 
   @override
-  void onRepeatEvent(DateTime timestamp) async {
-    DebugLogService().addLog('[TaskHandler] onRepeatEvent triggered at $timestamp');
+  Future<void> onEvent(DateTime timestamp, SendPort? sendPort) async {
+    DebugLogService().addLog('[TaskHandler] onEvent triggered at $timestamp');
     // タイムアウトしたジョブをリセット
     await _downloaderService.resetTimeoutJobs();
     await _downloaderService.checkRunningJobsAndPauseIfNeeded();
@@ -47,7 +48,7 @@ class CacheDownloaderTaskHandler extends TaskHandler {
   }
 
   @override
-  Future<void> onDestroy(DateTime timestamp, bool isTimeout) async {
+  Future<void> onDestroy(DateTime timestamp, SendPort? sendPort) async {
     // サービスのポーリングを停止
     await _downloaderService.stopPollingForForegroundTask();
   }

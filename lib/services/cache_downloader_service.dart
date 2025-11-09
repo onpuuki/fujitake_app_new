@@ -20,16 +20,16 @@ class CacheDownloaderService {
   }
   static final CacheDownloaderService instance = CacheDownloaderService._privateConstructor();
 
-  StreamSubscription<ConnectivityResult>? _connectivitySubscription;
+  StreamSubscription<List<ConnectivityResult>>? _connectivitySubscription;
 
   Future<void> _initialize() async {
     DebugLogService().addLog('[CacheDownloaderService] Initializing...');
     await resetTimeoutJobs();
     _processPendingJobs();
 
-    _connectivitySubscription = Connectivity().onConnectivityChanged.listen((ConnectivityResult result) {
+    _connectivitySubscription = Connectivity().onConnectivityChanged.listen((List<ConnectivityResult> result) {
       DebugLogService().addLog('[CacheDownloaderService] Connectivity changed: $result');
-      if (result == ConnectivityResult.wifi) {
+      if (result.contains(ConnectivityResult.wifi)) {
         _processWaitingForWifiJobs();
       }
     });

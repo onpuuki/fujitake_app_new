@@ -5,6 +5,8 @@ import 'package:fujitake_app_new/screens/father_todo_list_screen.dart';
 import 'package:fujitake_app_new/screens/favorite_websites_list_screen.dart'; // インポート
 import 'package:fujitake_app_new/screens/nas_viewer_screen.dart';
 
+import 'package:fujitake_app_new/services/global_log.dart';
+
 class FatherScreen extends StatelessWidget {
   final List<String> pipLogs;
 
@@ -12,6 +14,7 @@ class FatherScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    GlobalLog.add('テスト');
     return Scaffold(
       appBar: AppBar(
         title: const Text('お父さん機能'),

@@ -96,3 +96,78 @@ OpenHandsエージェントは、以下の品質基準と開発プラクティ�
 
 5.  **疑問点の確認**:
     -   指示内容に少しでも不明瞭な点や、既存のコードベースと矛盾する点がある場合は、自己判断せずに必ずユーザーに質問を投げかけ、誤った推測に基づく実装を避けてください。
+
+## RARファイルのストリーミング閲覧機能
+
+大容量のRARファイルでも即座に中身を閲覧できるよう、ネットワーク越しに直接ファイルをストリーミング処理する機能を実装しました。これにより、ユーザーはファイルを端末にダウンロードするのを待つ必要がなく、快適な操作性を体験できます。
+
+### アーキテクチャと実装の詳細
+
+この機能は、Flutter (UI)、Kotlin (Androidネイティブブリッジ)、C++ (コア処理) の3つのレイヤーが連携して動作します。
+
+#### ファイル構成
+
+-   **`lib/screens/rar_viewer_screen.dart`**:
+    -   RARファイル内のエントリ（主に画像ファイル）を一覧表示するUI。
+    -   `NasService` を通じてネイティブ機能を呼び出し、結果を `FutureBuilder` で非同期に表示します。
+
+-   **`lib/screens/image_viewer_screen.dart`**:
+    -   `rar_viewer_screen.dart` から渡された画像エントリを表示するUI。
+    -   ページング機能を持ち、RARファイル内の画像をスワイプで切り替えられます。
+    -   画像の読み込み時に `NasService` を通じてネイティブの画像展開処理を呼び出します。
+
+-   **`lib/services/nas_service.dart`**:
+    -   Flutterとネイティブコード間の通信を担う `MethodChannel` (`rar_channel`) を管理します。
+    -   `listRarEntries` と `extractRarEntry` メソッドを提供し、UIコンポーネントからのネイティブ呼び出しを抽象化します。
+
+-   **`android/app/src/main/kotlin/com/example/fujitake_app_new/MainActivity.kt`**:
+    -   Flutterからの `MethodChannel` 呼び出しを受け取るブリッジ。
+    -   SMBサーバーからファイルストリームを取得し、それをパイプ (`ParcelFileDescriptor.createPipe()`) に流し込みます。
+    -   パイプの読み取り側のファイルディスクリプタ (`fd`) をC++のJNI関数に渡します。
+    -   処理の各段階で `sendDebugLog` を呼び出し、Flutterのデバッグ画面にログを送信します。
+
+-   **`android/app/src/main/cpp/native-lib.cpp`**:
+    -   JNI関数 (`listRarEntries`, `extractRarEntry`) を実装しています。
+    -   `libarchive` ライブラリを使用し、Kotlinから渡されたファイルディスクリプタ (`fd`) を `archive_read_open_fd()` で直接読み込みます。
+    -   ファイルパスではなくファイルディスクリプタを扱うことで、ネットワーク越しのストリーミング処理を実現しています。
+
+#### 処理フロー
+
+1.  ユーザーが `nas_file_browser_screen.dart` でRARファイルをタップします。
+2.  `RarViewerScreen` に遷移し、`NasService.listRarEntries` を呼び出します。
+3.  **[Kotlin]** `MainActivity` が `listRarEntries` の呼び出しを受け取ります。
+4.  **[Kotlin]** SMBストリームを開始し、そのデータをパイプの書き込み側にコピーします。
+5.  **[Kotlin]** パイプの読み取り側ディスクリプタを、C++の `listRarEntries` JNI関数に渡します。
+6.  **[C++]** `libarchive` がディスクリプタを通じてストリームを読み込み、RARファイルヘッダを解析してファイル名の一覧を返します。
+7.  **[Flutter]** `RarViewerScreen` がファイル一覧を受け取り、画像ファイルのみをリスト表示します。
+8.  ユーザーがリスト内の画像をタップします。
+9.  `ImageViewerScreen` に遷移し、`NasService.extractRarEntry` を呼び出します。
+10. **[Kotlin -> C++]** 上記と同様の流れで、今度は `extractRarEntry` JNI関数が呼び出されます。
+11. **[C++]** `libarchive` が指定されたエントリを探し、そのデータ（バイト配列）を展開して返します。
+12. **[Flutter]** `ImageViewerScreen` が画像のバイトデータを受け取り、`Image.memory()` ウィジェットで表示します。
+
+### デバッグと検証の方法
+
+本機能のデバッグは、アプリ内のデバッグログ画面を利用して行います。
+
+1.  アプリを起動し、「お父さん機能」メニューから「デバッグログ画面」に遷移します。
+2.  NASファイルブラウザでRARファイルを操作します。
+3.  KotlinおよびDartで実装されたログがリアルタイムで画面に出力されます。ログには `[RarViewerScreen]`, `[Native]`, `[NasService]` などのプレフィックスが付与されており、どのレイヤーで何が起きているかを時系列で追跡できます。
+
+特に以下のログに注目することで、問題の切り分けが容易になります。
+-   `[Native] RAR_CHANNEL: Received call ...`: Flutterからネイティブへの呼び出しが成功しているか。
+-   `[Native] RAR_CHANNEL: Starting SMB stream copy...`: SMBサーバーへの接続とストリーミングが開始されたか。
+-   `[Native] RAR_CHANNEL: Calling native ...`: C++のJNI関数が呼び出されているか。
+-   `[NasService] Found ... entries.`: ネイティブ処理が成功し、データがFlutterに返されているか。
+
+### 今後の課題 (TODO)
+
+-   **パフォーマンス改善**:
+    -   `ImageViewerScreen` の見開き表示機能は、画像の寸法を取得するために全画像データを読み込む可能性があります。巨大なRARファイルの場合、これがパフォーマンスのボトルネックになる可能性があります。`libarchive` を使って画像のヘッダだけを読み、寸法情報のみを高速に取得するネイティブ関数の追加を検討してください。
+
+-   **エラーハンドリングの強化**:
+    -   現状では、ネイティブ処理でエラーが発生した場合、Flutter側では「0件のエントリ」または `null` として扱われます。`archive_error_string()` で得られる詳細なエラーメッセージをKotlin経由でFlutterに渡し、ユーザーに具体的な原因（例：「パスワードで保護されたRARです」「ファイルが破損しています」）を提示できるように改善してください。
+
+-   **C++からの直接ログ出力**:
+    -   現在、C++からのログは出力していません。デバッグをさらに容易にするため、JNIを通じてKotlinの `sendDebugLog` を呼び出す仕組みを構築し、`libarchive` の処理中やエラー発生時に詳細なログを出力することを検討してください。
+

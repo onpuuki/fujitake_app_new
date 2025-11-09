@@ -79,9 +79,9 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     if (pickedFile != null) {
       final croppedFile = await ImageCropper().cropImage(
         sourcePath: pickedFile.path,
-        // aspectRatioPresets: [ // ★修正★ この行を削除
-        //   CropAspectRatioPreset.square,
-        // ],
+        aspectRatioPresets: [
+          CropAspectRatioPreset.square,
+        ],
         uiSettings: [
           AndroidUiSettings(
             toolbarTitle: 'プロフィール画像をトリミング',
@@ -89,15 +89,9 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
             toolbarWidgetColor: Colors.white,
             initAspectRatio: CropAspectRatioPreset.square,
             lockAspectRatio: true, // 正方形に固定
-            aspectRatioPresets: [ // ★修正★ AndroidUiSettings の中に移動
-              CropAspectRatioPreset.square,
-            ],
           ),
           IOSUiSettings(
             title: 'プロフィール画像をトリミング',
-            aspectRatioPresets: [ // ★修正★ IOSUiSettings の中に移動
-              CropAspectRatioPreset.square,
-            ],
             rectX: 0.0,
             rectY: 0.0,
             rectWidth: 1.0,

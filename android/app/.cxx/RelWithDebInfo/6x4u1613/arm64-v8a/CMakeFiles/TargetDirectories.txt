@@ -1,0 +1,4 @@
+/workspace/fujitake_app_new/android/app/.cxx/RelWithDebInfo/6x4u1613/arm64-v8a/CMakeFiles/rebuild_cache.dir
+/workspace/fujitake_app_new/android/app/.cxx/RelWithDebInfo/6x4u1613/arm64-v8a/CMakeFiles/edit_cache.dir
+/workspace/fujitake_app_new/android/app/.cxx/RelWithDebInfo/6x4u1613/arm64-v8a/CMakeFiles/native-lib.dir
+/workspace/fujitake_app_new/android/app/.cxx/RelWithDebInfo/6x4u1613/arm64-v8a/CMakeFiles/archive_static.dir

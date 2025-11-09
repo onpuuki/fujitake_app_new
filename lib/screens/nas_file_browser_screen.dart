@@ -24,6 +24,7 @@ import 'package:fujitake_app_new/services/cache_path_service.dart';
 import 'package:image/image.dart' as img;
 import 'package:fujitake_app_new/utils/image_utils.dart';
 
+import 'package:fujitake_app_new/screens/rar_viewer_screen.dart';
 import 'nas_settings_screen.dart';
 // ネイティブから受け取るファイル情報を表すクラス
 class SmbNativeFile {
@@ -225,6 +226,16 @@ class _NasFileBrowserScreenState extends State<NasFileBrowserScreen> {
             server: widget.server,
             videoPath: remotePath,
             localPath: null,
+          ),
+        ),
+      );
+    } else if (fileExtension == '.rar') {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => RarViewerScreen(
+            server: widget.server,
+            rarPath: remotePath,
           ),
         ),
       );

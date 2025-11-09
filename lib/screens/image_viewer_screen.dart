@@ -1,5 +1,6 @@
 import 'dart:math';
 import 'package:fujitake_app_new/services/debug_log_service.dart';
+import '../services/nas_service.dart';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -36,12 +37,15 @@ class ImageViewerScreen extends StatefulWidget {
   final bool isLocal;
   final NasServer? server;
 
+  final String? rarPath; // Add this to handle RAR entries
+
   const ImageViewerScreen({
     super.key,
     required this.imagePaths,
     required this.initialIndex,
     this.isLocal = false,
     this.server,
+    this.rarPath, // Add this
   });
 
   @override
@@ -49,6 +53,7 @@ class ImageViewerScreen extends StatefulWidget {
 }
 
 class _ImageViewerScreenState extends State<ImageViewerScreen> {
+  final NasService _nasService = NasService();
   late PageController _pageController;
   late int _currentIndex;
   final Map<String, Uint8List> _imageCache = {};
@@ -136,24 +141,44 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
 
   Future<Uint8List> _loadImageBytes(String imagePath) async {
     final stopwatch = Stopwatch()..start();
+    final log = DebugLogService();
+    log.addLog('[_loadImageBytes] Loading: $imagePath');
     try {
       if (_imageCache.containsKey(imagePath)) {
-        DebugLogService().addLog('[_loadImageBytes] Load from cache: $imagePath');
+        log.addLog('[_loadImageBytes] Load from cache: $imagePath');
         return _imageCache[imagePath]!;
       }
+
+      // --- START: RAR Entry Loading Logic ---
+      if (widget.rarPath != null && widget.server != null) {
+        final fullSmbPath = 'smb://${widget.server!.host}/${widget.server!.shareName}/${widget.rarPath}';
+        log.addLog('[_loadImageBytes] Extracting from RAR: $imagePath');
+        final bytes = await _nasService.extractRarEntry(fullSmbPath, imagePath, widget.server!);
+        if (bytes == null) {
+          throw Exception('Failed to extract image from RAR for entry: $imagePath');
+        }
+        _imageCache[imagePath] = bytes;
+        return bytes;
+      }
+      // --- END: RAR Entry Loading Logic ---
+
       if (widget.isLocal) {
+        log.addLog('[_loadImageBytes] Reading local file: $imagePath');
         final localFile = File(imagePath);
         final bytes = await localFile.readAsBytes();
         _imageCache[imagePath] = bytes;
         return bytes;
       }
+      
       final localPath = await CachePathService.instance.getLocalPath(widget.server!.id, imagePath);
       final localFile = File(localPath);
       if (await localFile.exists()) {
+        log.addLog('[_loadImageBytes] Reading from local SMB cache: $localPath');
         final bytes = await localFile.readAsBytes();
         _imageCache[imagePath] = bytes;
         return bytes;
       } else {
+        log.addLog('[_loadImageBytes] Reading from remote SMB: $imagePath');
         const MethodChannel smbChannel = MethodChannel('com.example.fujitake_app_new/smb');
         final Uint8List imageBytes = await smbChannel.invokeMethod('readFile', {
           'host': widget.server!.host,
@@ -168,9 +193,12 @@ class _ImageViewerScreenState extends State<ImageViewerScreen> {
         _imageCache[imagePath] = imageBytes;
         return imageBytes;
       }
+    } catch (e) {
+      log.addLog('[_loadImageBytes] ERROR loading $imagePath: $e');
+      rethrow;
     } finally {
       stopwatch.stop();
-      DebugLogService().addLog('[_loadImageBytes] Loaded $imagePath in ${stopwatch.elapsedMilliseconds}ms.');
+      log.addLog('[_loadImageBytes] Loaded $imagePath in ${stopwatch.elapsedMilliseconds}ms.');
     }
   }
 

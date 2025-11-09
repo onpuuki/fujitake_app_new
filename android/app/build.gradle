@@ -1,7 +1,6 @@
 plugins {
     id "com.android.application"
     id "kotlin-android"
-    // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id "dev.flutter.flutter-gradle-plugin"
 }
 
@@ -25,8 +24,12 @@ if (flutterVersionName == null) {
 
 android {
     namespace = "com.example.fujitake_app_new"
-    compileSdk = flutter.compileSdkVersion
+    compileSdk = 34
     ndkVersion = flutter.ndkVersion
+
+    kotlinOptions {
+        jvmTarget = "1.8"
+    }
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_1_8
@@ -38,22 +41,41 @@ android {
         applicationId = "com.example.fujitake_app_new"
         // You can update the following values to match your application needs.
         // For more information, see: https://docs.flutter.dev/deployment/android#reviewing-the-gradle-build-configuration.
-        minSdk = 23
-        targetSdk = flutter.targetSdkVersion
+        minSdkVersion 23
+        targetSdk = 34
         versionCode = flutterVersionCode.toInteger()
         versionName = flutterVersionName
         multiDexEnabled true
+        ndk {
+            abiFilters 'arm64-v8a'
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path "src/main/cpp/CMakeLists.txt"
+        }
     }
 
     buildTypes {
         release {
             // TODO: Add your own signing config for the release build.
             // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.debug
+            signingConfig signingConfigs.debug
+            minifyEnabled true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
+    }
+    lintOptions {
+        disable 'NewApi'
     }
 }
 
 flutter {
     source = "../.."
+}
+dependencies {
+    implementation 'com.github.junrar:junrar:7.4.1'
+    implementation 'eu.agno3.jcifs:jcifs-ng:2.1.9'
+    implementation 'org.bouncycastle:bcprov-jdk15on:1.70'
 }

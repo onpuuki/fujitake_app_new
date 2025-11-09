@@ -1,0 +1,18 @@
+                    -H/workspace/fujitake_app_new/android/app/src/main/cpp
+-DCMAKE_SYSTEM_NAME=Android
+-DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+-DCMAKE_SYSTEM_VERSION=23
+-DANDROID_PLATFORM=android-23
+-DANDROID_ABI=arm64-v8a
+-DCMAKE_ANDROID_ARCH_ABI=arm64-v8a
+-DANDROID_NDK=/opt/android_sdk/ndk/23.1.7779620
+-DCMAKE_ANDROID_NDK=/opt/android_sdk/ndk/23.1.7779620
+-DCMAKE_TOOLCHAIN_FILE=/opt/android_sdk/ndk/23.1.7779620/build/cmake/android.toolchain.cmake
+-DCMAKE_MAKE_PROGRAM=/opt/android_sdk/cmake/3.18.1/bin/ninja
+-DCMAKE_LIBRARY_OUTPUT_DIRECTORY=/workspace/fujitake_app_new/build/app/intermediates/cxx/RelWithDebInfo/6x4u1613/obj/arm64-v8a
+-DCMAKE_RUNTIME_OUTPUT_DIRECTORY=/workspace/fujitake_app_new/build/app/intermediates/cxx/RelWithDebInfo/6x4u1613/obj/arm64-v8a
+-DCMAKE_BUILD_TYPE=RelWithDebInfo
+-B/workspace/fujitake_app_new/android/app/.cxx/RelWithDebInfo/6x4u1613/arm64-v8a
+-GNinja
+                    Build command args: []
+                    Version: 2

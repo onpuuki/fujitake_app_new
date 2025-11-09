@@ -19,30 +19,22 @@ class _NasShareListScreenState extends State<NasShareListScreen> {
   @override
   void initState() {
     super.initState();
-    _smbChannel.setMethodCallHandler(_handleMethodCalls);
     _sharesFuture = _listShares();
-  }
-
-  Future<void> _handleMethodCalls(MethodCall call) async {
-    if (call.method == 'onDebugLog') {
-      final String log = call.arguments as String;
-      if (mounted) {
-        setState(() {
-          GlobalLog.add(log);
-        });
-      }
-    }
   }
 
   Future<List<String>> _listShares() async {
     try {
+      GlobalLog.add('Listing shares for host: ${widget.server.host}');
       final List<dynamic> shares = await _smbChannel.invokeMethod('listShares', {
         'host': widget.server.host,
         'username': widget.server.username,
         'password': widget.server.password,
       });
+      GlobalLog.add('Successfully listed shares: $shares');
       return shares.cast<String>();
     } on PlatformException catch (e) {
+      GlobalLog.add('Error listing shares: ${e.message}');
+      GlobalLog.add('Details: ${e.details}');
       throw Exception("Failed to list shares: ${e.message}");
     }
   }

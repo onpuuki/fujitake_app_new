@@ -6,6 +6,7 @@
 #include <unistd.h>
 #include <android/log.h>
 #include <mutex>
+#include <thread>
 
 #define LOG_TAG "NativeRar"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
@@ -67,25 +68,28 @@ void logFromNative(const std::string& message) {
     // g_vm->DetachCurrentThread();
 }
 
-extern "C" JNIEXPORT jobjectArray JNICALL
-Java_com_example_fujitake_1app_1new_MainActivity_listRarEntries(
-        JNIEnv *env,
-        jobject /* this */,
-        jint fd) {
+void list_rar_entries_thread_func(jint fd) {
+    JNIEnv* env;
+    g_vm->AttachCurrentThread(&env, nullptr);
+
+    // ... (original listRarEntries logic here) ...
+    // Note: Cannot return jobjectArray directly from here.
+    // This part needs to be refactored to use callbacks if data is needed.
+    // For now, we just log the entries.
+
     int dup_fd = dup(fd);
     if (dup_fd == -1) {
         logFromNative("[CPP-E0] listRarEntries: dup(fd) failed for fd: " + std::to_string(fd));
-        return nullptr;
+        g_vm->DetachCurrentThread();
+        return;
     }
     logFromNative("[CPP-1] listRarEntries: Starting with duplicated fd: " + std::to_string(dup_fd));
     struct archive *a;
     struct archive_entry *entry;
     int r;
-    std::vector<std::string> entries;
 
     a = archive_read_new();
     logFromNative("[CPP-2] listRarEntries: archive_read_new() called.");
-
     archive_read_support_format_rar(a);
     archive_read_support_format_rar5(a);
     logFromNative("[CPP-3] listRarEntries: RAR formats supported.");
@@ -95,7 +99,8 @@ Java_com_example_fujitake_1app_1new_MainActivity_listRarEntries(
         logFromNative("[CPP-E1] listRarEntries: archive_read_open_fd() failed: " + std::string(archive_error_string(a)));
         archive_read_free(a);
         close(dup_fd);
-        return nullptr;
+        g_vm->DetachCurrentThread();
+        return;
     }
     logFromNative("[CPP-4] listRarEntries: archive_read_open_fd() successful.");
 
@@ -109,15 +114,9 @@ Java_com_example_fujitake_1app_1new_MainActivity_listRarEntries(
             logFromNative("[CPP-E2] listRarEntries: archive_read_next_header() failed: " + std::string(archive_error_string(a)));
             break;
         }
-        
         const char* pathname = archive_entry_pathname(entry);
-        entries.push_back(pathname);
-        
-        r = archive_read_data_skip(a);
-        if (r != ARCHIVE_OK) {
-            logFromNative("[CPP-E3] listRarEntries: archive_read_data_skip() failed for " + std::string(pathname) + ": " + std::string(archive_error_string(a)));
-            break;
-        }
+        logFromNative("[CPP-ENTRY] " + std::string(pathname)); // Log entry instead of returning
+        archive_read_data_skip(a);
     }
 
     logFromNative("[CPP-6] listRarEntries: Closing archive.");
@@ -125,13 +124,17 @@ Java_com_example_fujitake_1app_1new_MainActivity_listRarEntries(
     archive_read_free(a);
     close(dup_fd);
 
-    jobjectArray result = env->NewObjectArray(entries.size(), env->FindClass("java/lang/String"), nullptr);
-    for (size_t i = 0; i < entries.size(); i++) {
-        env->SetObjectArrayElement(result, i, env->NewStringUTF(entries[i].c_str()));
-    }
+    logFromNative("[CPP-7] listRarEntries: Finished thread.");
+    g_vm->DetachCurrentThread();
+}
 
-    logFromNative("[CPP-7] listRarEntries: Finished, returning " + std::to_string(entries.size()) + " entries.");
-    return result;
+extern "C" JNIEXPORT void JNICALL
+Java_com_example_fujitake_1app_1new_MainActivity_listRarEntries(
+        JNIEnv *env,
+        jobject /* this */,
+        jint fd) {
+    logFromNative("[CPP-0] listRarEntries: Spawning new thread for fd: " + std::to_string(fd));
+    std::thread(list_rar_entries_thread_func, fd).detach();
 }
 
 extern "C" JNIEXPORT jbyteArray JNICALL

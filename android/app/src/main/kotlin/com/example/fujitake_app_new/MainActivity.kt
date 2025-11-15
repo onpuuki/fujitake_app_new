@@ -141,22 +141,25 @@ class MainActivity: FlutterActivity() {
                         }
                     }
 
-                    sendDebugLog("RAR_CHANNEL: [9] Detaching read FD...")
+                    sendDebugLog("RAR_CHANNEL: [9] Waiting for CopyJob to complete BEFORE calling native code...")
+                    copyJob.join()
+                    sendDebugLog("RAR_CHANNEL: [10] CopyJob finished. Now proceeding to call native code.")
+
                     val fd = readSide.detachFd()
-                    sendDebugLog("RAR_CHANNEL: [10] Detached read FD (${fd}) to pass to native code.")
+                    sendDebugLog("RAR_CHANNEL: [11] Detached read FD (${fd}) to pass to native code.")
 
                     when (call.method) {
                         "listRarEntries" -> {
-                            sendDebugLog("RAR_CHANNEL: [11] Calling native 'listRarEntries' with fd=${fd}")
+                            sendDebugLog("RAR_CHANNEL: [12] Calling native 'listRarEntries' with fd=${fd}")
                             val entryNames = listRarEntries(fd)
-                            sendDebugLog("RAR_CHANNEL: [12] Native 'listRarEntries' returned.")
+                            sendDebugLog("RAR_CHANNEL: [13] Native 'listRarEntries' returned.")
                             result.success(entryNames?.toList())
                         }
                         "extractRarEntry" -> {
                             val entryName = call.argument<String>("entryName")!!
-                            sendDebugLog("RAR_CHANNEL: [11a] Calling native 'extractRarEntry' with fd=${fd}, entryName='${entryName}'")
+                            sendDebugLog("RAR_CHANNEL: [12a] Calling native 'extractRarEntry' with fd=${fd}, entryName='${entryName}'")
                             val data = extractRarEntry(fd, entryName)
-                            sendDebugLog("RAR_CHANNEL: [12a] Native 'extractRarEntry' returned.")
+                            sendDebugLog("RAR_CHANNEL: [13a] Native 'extractRarEntry' returned.")
                             result.success(data)
                         }
                         else -> {
@@ -164,10 +167,7 @@ class MainActivity: FlutterActivity() {
                             result.notImplemented()
                         }
                     }
-
-                    sendDebugLog("RAR_CHANNEL: [13] Waiting for CopyJob to complete...")
-                    copyJob.join()
-                    sendDebugLog("RAR_CHANNEL: [14] CopyJob finished. Request complete.")
+                    sendDebugLog("RAR_CHANNEL: [14] Request complete.")
 
                 } catch (e: Exception) {
                     sendDebugLog("RAR_CHANNEL: [E2] ERROR in method handler: ${e.message}")

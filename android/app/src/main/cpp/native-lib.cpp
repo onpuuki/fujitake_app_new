@@ -89,7 +89,6 @@ Java_com_example_fujitake_1app_1new_MainActivity_listRarEntries(
     if (r != ARCHIVE_OK) {
         logFromNative("[CPP-E1] listRarEntries: archive_read_open_fd() failed: " + std::string(archive_error_string(a)));
         archive_read_free(a);
-        close(fd);
         return nullptr;
     }
     logFromNative("[CPP-4] listRarEntries: archive_read_open_fd() successful.");
@@ -149,7 +148,6 @@ Java_com_example_fujitake_1app_1new_MainActivity_extractRarEntry(
         logFromNative("[CPP-E1a] extractRarEntry: archive_read_open_fd() failed: " + std::string(archive_error_string(a)));
         env->ReleaseStringUTFChars(entryName, entry_name);
         archive_read_free(a);
-        close(fd);
         return nullptr;
     }
 

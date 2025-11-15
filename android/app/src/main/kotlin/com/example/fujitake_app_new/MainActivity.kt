@@ -110,6 +110,8 @@ class MainActivity: FlutterActivity() {
             val handlerScope = CoroutineScope(Dispatchers.IO)
             handlerScope.launch {
                 sendDebugLog("RAR_CHANNEL: [1] Handler coroutine started for '${call.method}'")
+                var readSide: ParcelFileDescriptor? = null
+                var writeSide: ParcelFileDescriptor? = null
                 try {
                     val smbPath = call.argument<String>("smbPath")!!
                     val username = call.argument<String>("username")!!
@@ -117,8 +119,8 @@ class MainActivity: FlutterActivity() {
                     sendDebugLog("RAR_CHANNEL: [2] smbPath='${smbPath}'")
 
                     val pipefds = ParcelFileDescriptor.createPipe()
-                    val readSide = pipefds[0]
-                    val writeSide = pipefds[1]
+                    readSide = pipefds[0]
+                    writeSide = pipefds[1]
                     sendDebugLog("RAR_CHANNEL: [3] Pipe created. Read FD=${readSide.fd}, Write FD=${writeSide.fd}")
 
                     val copyJob = launch {
@@ -140,12 +142,16 @@ class MainActivity: FlutterActivity() {
                             sendDebugLog("RAR_CHANNEL: [E1] ERROR copying SMB stream to pipe: ${e.message}")
                             Log.e("MainActivity", "Error copying SMB stream to pipe", e)
                         } finally {
+                            // writeSide is closed here to signal EOF to the readSide.
                             writeSide.close()
                             sendDebugLog("RAR_CHANNEL: [8] Pipe write side closed.")
                         }
                     }
 
                     sendDebugLog("RAR_CHANNEL: [9] Detaching read FD...")
+                    // After detaching, the original ParcelFileDescriptor object is closed.
+                    // The caller (native code) is now responsible for closing the raw file descriptor.
+                    // But we've modified native code not to close it. We will close the readSide in the finally block.
                     val fd = readSide.detachFd()
                     sendDebugLog("RAR_CHANNEL: [10] Detached read FD (${fd}) to pass to native code.")
 
@@ -176,6 +182,15 @@ class MainActivity: FlutterActivity() {
                 } catch (e: Exception) {
                     sendDebugLog("RAR_CHANNEL: [E2] ERROR in method handler: ${e.message}")
                     handleException(e, result)
+                } finally {
+                    try {
+                        readSide?.close()
+                        sendDebugLog("RAR_CHANNEL: [F1] Pipe read side closed in finally.")
+                    } catch (e: IOException) {
+                        sendDebugLog("RAR_CHANNEL: [F1-E] Error closing read side: ${e.message}")
+                    }
+                    // writeSide is already closed in the copyJob's finally block.
+                    // Closing it again would throw an exception.
                 }
             }
         }

@@ -195,10 +195,13 @@ class MainActivity: FlutterActivity() {
     private fun createCifsContext(username: String, password: String): CIFSContext {
         val props = Properties()
         props.setProperty("jcifs.smb.client.enableSMB2", "true")
-        props.setProperty("jcifs.smb.client.disableSMB1", "false") // Enable SMB1 for compatibility
+        props.setProperty("jcifs.smb.client.disableSMB1", "false")
         props.setProperty("jcifs.smb.client.useSMB2Negotiation", "true")
-        props.setProperty("jcifs.smb.client.ipcSigningEnforced", "false") // Try disabling IPC signing
-        props.setProperty("jcifs.smb.client.ntlm.compatibility", "3") // NTLMv1/v2 compatibility
+        props.setProperty("jcifs.smb.client.ipcSigningEnforced", "false")
+        props.setProperty("jcifs.smb.client.ntlm.compatibility", "3")
+        // CRITICAL FIX: Disable NetBIOS name resolution which is failing. Rely on IP/DNS.
+        props.setProperty("jcifs.resolveOrder", "DNS")
+        props.setProperty("jcifs.smb.client.dfs.disabled", "true")
         val config = PropertyConfiguration(props)
         val baseContext = BaseContext(config)
         val auth = NtlmPasswordAuthenticator(null, username, password)

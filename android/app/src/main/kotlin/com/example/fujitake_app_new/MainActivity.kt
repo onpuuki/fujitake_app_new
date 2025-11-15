@@ -149,12 +149,9 @@ class MainActivity: FlutterActivity() {
                         }
                     }
 
-                    sendDebugLog("RAR_CHANNEL: [9] Detaching read FD...")
-                    // After detaching, the original ParcelFileDescriptor object is closed.
-                    // The caller (native code) is now responsible for closing the raw file descriptor.
-                    // But we've modified native code not to close it. We will close the readSide in the finally block.
-                    val fd = readSide.detachFd()
-                    sendDebugLog("RAR_CHANNEL: [10] Detached read FD (${fd}) to pass to native code.")
+                    sendDebugLog("RAR_CHANNEL: [9] Getting raw FD without detaching...")
+                    val fd = readSide.fd
+                    sendDebugLog("RAR_CHANNEL: [10] Got raw FD (${fd}) to pass to native code. Ownership remains in Kotlin.")
 
                     when (call.method) {
                         "listRarEntries" -> {

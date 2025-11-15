@@ -72,29 +72,50 @@ Java_com_example_fujitake_1app_1new_MainActivity_listRarEntries(
         JNIEnv *env,
         jobject /* this */,
         jint fd) {
-    logFromNative("listRarEntries: Starting");
+    logFromNative("[CPP-1] listRarEntries: Starting with fd: " + std::to_string(fd));
     struct archive *a;
     struct archive_entry *entry;
     int r;
     std::vector<std::string> entries;
 
     a = archive_read_new();
+    logFromNative("[CPP-2] listRarEntries: archive_read_new() called.");
+
     archive_read_support_format_rar(a);
     archive_read_support_format_rar5(a);
+    logFromNative("[CPP-3] listRarEntries: RAR formats supported.");
 
     r = archive_read_open_fd(a, fd, 10240);
     if (r != ARCHIVE_OK) {
-        logFromNative("listRarEntries: archive_read_open_fd() failed: " + std::string(archive_error_string(a)));
+        logFromNative("[CPP-E1] listRarEntries: archive_read_open_fd() failed: " + std::string(archive_error_string(a)));
         archive_read_free(a);
         close(fd);
         return nullptr;
     }
+    logFromNative("[CPP-4] listRarEntries: archive_read_open_fd() successful.");
 
-    while (archive_read_next_header(a, &entry) == ARCHIVE_OK) {
-        entries.push_back(archive_entry_pathname(entry));
-        archive_read_data_skip(a);
+    while (true) {
+        r = archive_read_next_header(a, &entry);
+        if (r == ARCHIVE_EOF) {
+            logFromNative("[CPP-5] listRarEntries: Reached end of archive.");
+            break;
+        }
+        if (r != ARCHIVE_OK) {
+            logFromNative("[CPP-E2] listRarEntries: archive_read_next_header() failed: " + std::string(archive_error_string(a)));
+            break;
+        }
+        
+        const char* pathname = archive_entry_pathname(entry);
+        entries.push_back(pathname);
+        
+        r = archive_read_data_skip(a);
+        if (r != ARCHIVE_OK) {
+            logFromNative("[CPP-E3] listRarEntries: archive_read_data_skip() failed for " + std::string(pathname) + ": " + std::string(archive_error_string(a)));
+            break;
+        }
     }
 
+    logFromNative("[CPP-6] listRarEntries: Closing archive.");
     archive_read_close(a);
     archive_read_free(a);
 
@@ -103,7 +124,7 @@ Java_com_example_fujitake_1app_1new_MainActivity_listRarEntries(
         env->SetObjectArrayElement(result, i, env->NewStringUTF(entries[i].c_str()));
     }
 
-    logFromNative("listRarEntries: Finished, returning " + std::to_string(entries.size()) + " entries.");
+    logFromNative("[CPP-7] listRarEntries: Finished, returning " + std::to_string(entries.size()) + " entries.");
     return result;
 }
 
@@ -114,7 +135,7 @@ Java_com_example_fujitake_1app_1new_MainActivity_extractRarEntry(
         jint fd,
         jstring entryName) {
     const char *entry_name = env->GetStringUTFChars(entryName, 0);
-    logFromNative("extractRarEntry: Starting for entry: " + std::string(entry_name));
+    logFromNative("[CPP-1a] extractRarEntry: Starting for entry: " + std::string(entry_name) + " with fd: " + std::to_string(fd));
     struct archive *a;
     struct archive_entry *entry;
     jbyteArray result = nullptr;
@@ -125,7 +146,7 @@ Java_com_example_fujitake_1app_1new_MainActivity_extractRarEntry(
     
     int r = archive_read_open_fd(a, fd, 10240);
     if (r != ARCHIVE_OK) {
-        logFromNative("extractRarEntry: archive_read_open_fd() failed: " + std::string(archive_error_string(a)));
+        logFromNative("[CPP-E1a] extractRarEntry: archive_read_open_fd() failed: " + std::string(archive_error_string(a)));
         env->ReleaseStringUTFChars(entryName, entry_name);
         archive_read_free(a);
         close(fd);
@@ -153,6 +174,6 @@ Java_com_example_fujitake_1app_1new_MainActivity_extractRarEntry(
     archive_read_free(a);
     env->ReleaseStringUTFChars(entryName, entry_name);
 
-    logFromNative("extractRarEntry: Finished.");
+    logFromNative("[CPP-7a] extractRarEntry: Finished.");
     return result;
 }

@@ -145,30 +145,24 @@ class MainActivity: FlutterActivity() {
                     val fd = readSide.detachFd()
                     sendDebugLog("RAR_CHANNEL: Detached read FD (${fd}) to pass to native code.")
 
-                    try {
-                        when (call.method) {
-                            "listRarEntries" -> {
-                                sendDebugLog("RAR_CHANNEL: Calling native 'listRarEntries' with fd=${fd}")
-                                val entryNames = listRarEntries(fd)
-                                sendDebugLog("RAR_CHANNEL: Native 'listRarEntries' returned ${entryNames?.size ?: 0} entries.")
-                                result.success(entryNames?.toList())
-                            }
-                            "extractRarEntry" -> {
-                                val entryName = call.argument<String>("entryName")!!
-                                sendDebugLog("RAR_CHANNEL: Calling native 'extractRarEntry' with fd=${fd}, entryName='${entryName}'")
-                                val data = extractRarEntry(fd, entryName)
-                                sendDebugLog("RAR_CHANNEL: Native 'extractRarEntry' returned ${data?.size ?: 0} bytes.")
-                                result.success(data)
-                            }
-                            else -> {
-                                sendDebugLog("RAR_CHANNEL: Method '${call.method}' not implemented.")
-                                result.notImplemented()
-                            }
+                    when (call.method) {
+                        "listRarEntries" -> {
+                            sendDebugLog("RAR_CHANNEL: Calling native 'listRarEntries' with fd=${fd}")
+                            val entryNames = listRarEntries(fd)
+                            sendDebugLog("RAR_CHANNEL: Native 'listRarEntries' returned ${entryNames?.size ?: 0} entries.")
+                            result.success(entryNames?.toList())
                         }
-                    } finally {
-                        // Ensure the read side of the pipe is closed after the native call is complete
-                        readSide.close()
-                        sendDebugLog("RAR_CHANNEL: Read pipe FD inside finally closed.")
+                        "extractRarEntry" -> {
+                            val entryName = call.argument<String>("entryName")!!
+                            sendDebugLog("RAR_CHANNEL: Calling native 'extractRarEntry' with fd=${fd}, entryName='${entryName}'")
+                            val data = extractRarEntry(fd, entryName)
+                            sendDebugLog("RAR_CHANNEL: Native 'extractRarEntry' returned ${data?.size ?: 0} bytes.")
+                            result.success(data)
+                        }
+                        else -> {
+                            sendDebugLog("RAR_CHANNEL: Method '${call.method}' not implemented.")
+                            result.notImplemented()
+                        }
                     }
 
                     copyJob.join()

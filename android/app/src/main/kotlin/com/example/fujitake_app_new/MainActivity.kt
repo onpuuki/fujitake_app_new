@@ -32,11 +32,13 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import java.util.Properties
 
+import android.os.Handler
+import android.os.Looper
+
 class MainActivity: FlutterActivity() {
     private val SMB_CHANNEL = "com.example.fujitake_app_new/smb"
     private val RAR_CHANNEL = "com.example.fujitake_app_new/rar"
     private val STORAGE_PERMISSION_CODE = 101
-    private val activePipes = mutableMapOf<Int, ParcelFileDescriptor>()
 
     private lateinit var rarChannel: MethodChannel
 
@@ -45,6 +47,16 @@ class MainActivity: FlutterActivity() {
     private external fun extractRarEntry(fd: Int, entryName: String): ByteArray?
 
     companion object {
+        private var staticRarChannel: MethodChannel? = null
+        private val mainHandler = Handler(Looper.getMainLooper())
+
+        @JvmStatic
+        fun logFromNative(message: String) {
+            mainHandler.post {
+                staticRarChannel?.invokeMethod("onDebugLog", "[C++] $message")
+            }
+        }
+        
         init {
             // Load the native library
             System.loadLibrary("native-lib")
@@ -93,6 +105,7 @@ class MainActivity: FlutterActivity() {
 
         // RAR Channel Handler
         rarChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, RAR_CHANNEL)
+        staticRarChannel = rarChannel // Assign to the static variable
         rarChannel.setMethodCallHandler { call, result ->
             CoroutineScope(Dispatchers.IO).launch {
                 sendDebugLog("RAR_CHANNEL: Received call '${call.method}'")

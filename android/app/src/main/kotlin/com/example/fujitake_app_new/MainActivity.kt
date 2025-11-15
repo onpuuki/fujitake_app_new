@@ -113,60 +113,22 @@ class MainActivity: FlutterActivity() {
                     val smbPath = call.argument<String>("smbPath")!!
                     val username = call.argument<String>("username")!!
                     val password = call.argument<String>("password")!!
-                    sendDebugLog("RAR_CHANNEL: smbPath='${smbPath}'")
+                    sendDebugLog("RAR_CHANNEL: (Diagnostic) Testing SMB connection for '${smbPath}'")
 
-                    // Create a pipe
-                    val pipefds = ParcelFileDescriptor.createPipe()
-                    val readSide = pipefds[0]
-                    val writeSide = pipefds[1]
-                    sendDebugLog("RAR_CHANNEL: Pipe created. Read FD=${readSide.fd}, Write FD=${writeSide.fd}")
-
-                    // Start a new coroutine to copy the SMB stream to the pipe's write side
-                    val copyJob = launch {
-                        try {
-                            sendDebugLog("RAR_CHANNEL: Starting SMB stream copy to pipe...")
-                            getSmbInputStream(smbPath, username, password).use { smbStream ->
-                                FileOutputStream(writeSide.fileDescriptor).use { outputStream ->
-                                    smbStream.copyTo(outputStream)
-                                }
-                            }
-                            sendDebugLog("RAR_CHANNEL: SMB stream copy finished successfully.")
-                        } catch (e: Exception) {
-                            sendDebugLog("RAR_CHANNEL: ERROR copying SMB stream to pipe: ${e.message}")
-                            Log.e("MainActivity", "Error copying SMB stream to pipe", e)
-                        } finally {
-                            // Close the write side of the pipe to signal end of data
-                            writeSide.close()
-                            sendDebugLog("RAR_CHANNEL: Pipe write side closed.")
+                    try {
+                        getSmbInputStream(smbPath, username, password).use { smbStream ->
+                            val buffer = ByteArray(1024)
+                            val bytesRead = smbStream.read(buffer, 0, buffer.size)
+                            sendDebugLog("RAR_CHANNEL: (Diagnostic) SMB read test successful. Read $bytesRead bytes.")
                         }
+                    } catch (e: Exception) {
+                        sendDebugLog("RAR_CHANNEL: (Diagnostic) SMB read test FAILED: ${e.message}")
+                        Log.e("MainActivity", "Diagnostic SMB read failed", e)
+                        // Still proceed to return empty list, but the log will show the failure.
                     }
 
-                    // Use the read side of the pipe for libarchive
-                    val fd = readSide.detachFd()
-                    sendDebugLog("RAR_CHANNEL: Detached read FD (${fd}) to pass to native code.")
-
-                    when (call.method) {
-                        "listRarEntries" -> {
-                            sendDebugLog("RAR_CHANNEL: Calling native 'listRarEntries' with fd=${fd}")
-                            val entryNames = listRarEntries(fd)
-                            sendDebugLog("RAR_CHANNEL: Native 'listRarEntries' returned ${entryNames?.size ?: 0} entries.")
-                            result.success(entryNames?.toList())
-                        }
-                        "extractRarEntry" -> {
-                            val entryName = call.argument<String>("entryName")!!
-                            sendDebugLog("RAR_CHANNEL: Calling native 'extractRarEntry' with fd=${fd}, entryName='${entryName}'")
-                            val data = extractRarEntry(fd, entryName)
-                            sendDebugLog("RAR_CHANNEL: Native 'extractRarEntry' returned ${data?.size ?: 0} bytes.")
-                            result.success(data)
-                        }
-                        else -> {
-                            sendDebugLog("RAR_CHANNEL: Method '${call.method}' not implemented.")
-                            result.notImplemented()
-                        }
-                    }
-
-                    copyJob.join()
-                    sendDebugLog("RAR_CHANNEL: Copy job finished. Request complete.")
+                    result.success(emptyList<String>())
+                    sendDebugLog("RAR_CHANNEL: (Diagnostic) Test finished.")
 
                 } catch (e: Exception) {
                     sendDebugLog("RAR_CHANNEL: ERROR in method handler: ${e.message}")

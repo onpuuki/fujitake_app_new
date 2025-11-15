@@ -54,7 +54,7 @@ dependencies:
   # --- ここまで追加 ---
 
   # ★追加するパッケージ★
-  shared_preferences: any # ユーザーIDの永続化用
+  shared_preferences: ^2.2.3 # ユーザーIDの永続化用
 
 
   

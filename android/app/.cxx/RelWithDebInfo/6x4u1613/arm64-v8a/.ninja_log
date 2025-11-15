@@ -133,3 +133,5 @@
 2932	3084	1762699779	/workspace/fujitake_app_new/build/app/intermediates/cxx/RelWithDebInfo/6x4u1613/obj/arm64-v8a/libnative-lib.so	98d1d02306bd567b
 6	719	1763212234	CMakeFiles/native-lib.dir/native-lib.cpp.o	e77d3edb11d95720
 719	906	1763212234	/workspace/fujitake_app_new/build/app/intermediates/cxx/RelWithDebInfo/6x4u1613/obj/arm64-v8a/libnative-lib.so	98d1d02306bd567b
+9	1245	1763213834	CMakeFiles/native-lib.dir/native-lib.cpp.o	e77d3edb11d95720
+1245	1487	1763213834	/workspace/fujitake_app_new/build/app/intermediates/cxx/RelWithDebInfo/6x4u1613/obj/arm64-v8a/libnative-lib.so	98d1d02306bd567b

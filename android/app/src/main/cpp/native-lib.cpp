@@ -5,6 +5,7 @@
 #include <archive_entry.h>
 #include <unistd.h>
 #include <android/log.h>
+#include <mutex>
 
 #define LOG_TAG "NativeRar"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
@@ -12,48 +13,57 @@
 JavaVM* g_vm = nullptr;
 jclass g_mainActivityClass = nullptr;
 jmethodID g_logMethod = nullptr;
+std::mutex g_jni_mutex;
 
 // JNI_OnLoad is called when the library is loaded
 JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved) {
     g_vm = vm;
-    JNIEnv* env;
-    if (vm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6) != JNI_OK) {
-        return JNI_ERR;
-    }
-
-    jclass localClass = env->FindClass("com/example/fujitake_app_new/MainActivity");
-    if (localClass == nullptr) {
-        LOGI("Failed to find MainActivity class");
-        return JNI_ERR;
-    }
-    g_mainActivityClass = (jclass)env->NewGlobalRef(localClass);
-
-    g_logMethod = env->GetStaticMethodID(g_mainActivityClass, "logFromNative", "(Ljava/lang/String;)V");
-    if (g_logMethod == nullptr) {
-        LOGI("Failed to find logFromNative method");
-        return JNI_ERR;
-    }
-
     return JNI_VERSION_1_6;
 }
 
 void logFromNative(const std::string& message) {
-    if (g_vm == nullptr || g_mainActivityClass == nullptr || g_logMethod == nullptr) {
-        LOGI("JNI components not initialized for logging.");
+    if (g_vm == nullptr) {
+        LOGI("g_vm is null. Cannot log.");
         return;
     }
 
     JNIEnv* env;
     jint rs = g_vm->AttachCurrentThread(&env, nullptr);
     if (rs != JNI_OK) {
+        LOGI("AttachCurrentThread failed.");
         return;
+    }
+
+    // Lazy initialization of JNI components
+    {
+        std::lock_guard<std::mutex> lock(g_jni_mutex);
+        if (g_mainActivityClass == nullptr) {
+            jclass localClass = env->FindClass("com/example/fujitake_app_new/MainActivity");
+            if (localClass != nullptr) {
+                g_mainActivityClass = (jclass)env->NewGlobalRef(localClass);
+                env->DeleteLocalRef(localClass);
+            } else {
+                LOGI("Failed to find MainActivity class");
+                g_vm->DetachCurrentThread();
+                return;
+            }
+        }
+
+        if (g_logMethod == nullptr) {
+            g_logMethod = env->GetStaticMethodID(g_mainActivityClass, "logFromNative", "(Ljava/lang/String;)V");
+            if (g_logMethod == nullptr) {
+                LOGI("Failed to find logFromNative method");
+                g_vm->DetachCurrentThread();
+                return;
+            }
+        }
     }
 
     jstring javaMessage = env->NewStringUTF(message.c_str());
     env->CallStaticVoidMethod(g_mainActivityClass, g_logMethod, javaMessage);
     env->DeleteLocalRef(javaMessage);
 
-    // Detach is not strictly necessary for daemon threads, but good practice
+    // Do not detach if you plan to call back frequently from the same native thread
     // g_vm->DetachCurrentThread();
 }
 
@@ -99,7 +109,6 @@ Java_com_example_fujitake_1app_1new_MainActivity_listRarEntries(
         logFromNative("listRarEntries: Found entry: " + std::string(pathname));
         entries.push_back(pathname);
 
-        // CRITICAL FIX: Skip the data for the current entry to properly advance to the next header.
         r = archive_read_data_skip(a);
         if (r != ARCHIVE_OK) {
             logFromNative("listRarEntries: archive_read_data_skip() failed for " + std::string(pathname) + ": " + std::string(archive_error_string(a)));
@@ -110,7 +119,7 @@ Java_com_example_fujitake_1app_1new_MainActivity_listRarEntries(
     logFromNative("listRarEntries: Closing archive.");
     archive_read_close(a);
     archive_read_free(a);
-    close(fd); // Close the file descriptor
+    close(fd);
 
     jobjectArray result = env->NewObjectArray(entries.size(), env->FindClass("java/lang/String"), nullptr);
     for (size_t i = 0; i < entries.size(); i++) {
@@ -166,6 +175,8 @@ Java_com_example_fujitake_1app_1new_MainActivity_extractRarEntry(
             }
             break;
         }
+        // This is crucial for finding a specific entry: skip data of non-matching entries.
+        archive_read_data_skip(a);
     }
 
     logFromNative("extractRarEntry: Closing archive.");

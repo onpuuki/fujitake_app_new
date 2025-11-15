@@ -122,44 +122,38 @@ class MainActivity: FlutterActivity() {
                     sendDebugLog("RAR_CHANNEL: [3] Pipe created. Read FD=${readSide.fd}, Write FD=${writeSide.fd}")
 
                     val copyJob = launch {
-                        sendDebugLog("RAR_CHANNEL: [4] CopyJob coroutine started.")
                         try {
-                            sendDebugLog("RAR_CHANNEL: [5] Starting SMB stream copy to pipe...")
+                            sendDebugLog("RAR_CHANNEL: Starting SMB stream copy to pipe...")
                             getSmbInputStream(smbPath, username, password).use { smbStream ->
-                                sendDebugLog("RAR_CHANNEL: [6] SMB InputStream obtained. Starting copy.")
                                 FileOutputStream(writeSide.fileDescriptor).use { outputStream ->
                                     smbStream.copyTo(outputStream)
                                 }
-                                sendDebugLog("RAR_CHANNEL: [7] SMB stream copy finished successfully.")
                             }
+                            sendDebugLog("RAR_CHANNEL: SMB stream copy finished successfully.")
                         } catch (e: Exception) {
-                            sendDebugLog("RAR_CHANNEL: [E1] ERROR copying SMB stream to pipe: ${e.message}")
+                            sendDebugLog("RAR_CHANNEL: ERROR copying SMB stream to pipe: ${e.message}")
                             Log.e("MainActivity", "Error copying SMB stream to pipe", e)
                         } finally {
                             writeSide.close()
-                            sendDebugLog("RAR_CHANNEL: [8] Pipe write side closed.")
+                            sendDebugLog("RAR_CHANNEL: Pipe write side closed.")
                         }
                     }
 
-                    sendDebugLog("RAR_CHANNEL: [9] Waiting for CopyJob to complete BEFORE calling native code...")
-                    copyJob.join()
-                    sendDebugLog("RAR_CHANNEL: [10] CopyJob finished. Now proceeding to call native code.")
-
                     val fd = readSide.detachFd()
-                    sendDebugLog("RAR_CHANNEL: [11] Detached read FD (${fd}) to pass to native code.")
+                    sendDebugLog("RAR_CHANNEL: Detached read FD (${fd}) to pass to native code.")
 
                     when (call.method) {
                         "listRarEntries" -> {
-                            sendDebugLog("RAR_CHANNEL: [12] Calling native 'listRarEntries' with fd=${fd}")
+                            sendDebugLog("RAR_CHANNEL: Calling native 'listRarEntries' with fd=${fd}")
                             val entryNames = listRarEntries(fd)
-                            sendDebugLog("RAR_CHANNEL: [13] Native 'listRarEntries' returned.")
+                            sendDebugLog("RAR_CHANNEL: Native 'listRarEntries' returned ${entryNames?.size ?: 0} entries.")
                             result.success(entryNames?.toList())
                         }
                         "extractRarEntry" -> {
                             val entryName = call.argument<String>("entryName")!!
-                            sendDebugLog("RAR_CHANNEL: [12a] Calling native 'extractRarEntry' with fd=${fd}, entryName='${entryName}'")
+                            sendDebugLog("RAR_CHANNEL: Calling native 'extractRarEntry' with fd=${fd}, entryName='${entryName}'")
                             val data = extractRarEntry(fd, entryName)
-                            sendDebugLog("RAR_CHANNEL: [13a] Native 'extractRarEntry' returned.")
+                            sendDebugLog("RAR_CHANNEL: Native 'extractRarEntry' returned ${data?.size ?: 0} bytes.")
                             result.success(data)
                         }
                         else -> {
@@ -167,7 +161,10 @@ class MainActivity: FlutterActivity() {
                             result.notImplemented()
                         }
                     }
-                    sendDebugLog("RAR_CHANNEL: [14] Request complete.")
+
+                    // Wait for the copy job to complete to ensure all resources are released.
+                    copyJob.join()
+                    sendDebugLog("RAR_CHANNEL: Copy job finished. Request complete.")
 
                 } catch (e: Exception) {
                     sendDebugLog("RAR_CHANNEL: [E2] ERROR in method handler: ${e.message}")

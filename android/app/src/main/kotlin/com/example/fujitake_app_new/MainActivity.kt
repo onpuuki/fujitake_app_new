@@ -126,15 +126,26 @@ class MainActivity: FlutterActivity() {
                         try {
                             sendDebugLog("RAR_CHANNEL: [5] Starting SMB stream copy to pipe...")
                             getSmbInputStream(smbPath, username, password).use { smbStream ->
-                                sendDebugLog("RAR_CHANNEL: [6] SMB InputStream obtained. Starting manual copy.")
-                                FileOutputStream(writeSide.fileDescriptor).use { outputStream ->
-                                    val buffer = ByteArray(4096)
-                                    var bytesRead: Int
-                                    while (smbStream.read(buffer).also { bytesRead = it } != -1) {
-                                        outputStream.write(buffer, 0, bytesRead)
-                                    }
+                                sendDebugLog("RAR_CHANNEL: [6] SMB InputStream obtained. Type: ${smbStream.javaClass.name}")
+                                try {
+                                    val availableBytes = smbStream.available()
+                                    sendDebugLog("RAR_CHANNEL: [6a] smbStream.available() = $availableBytes bytes.")
+                                } catch (e: Exception) {
+                                    sendDebugLog("RAR_CHANNEL: [E1a] ERROR checking smbStream.available(): ${e.message}")
                                 }
-                                sendDebugLog("RAR_CHANNEL: [7] SMB stream manual copy finished successfully.")
+
+                                sendDebugLog("RAR_CHANNEL: [6b] Checking pipe's write-side file descriptor...")
+                                if (!writeSide.fileDescriptor.valid()) {
+                                    sendDebugLog("RAR_CHANNEL: [E1b] ERROR: Pipe's write-side FD is invalid before use!")
+                                    return@use
+                                }
+                                sendDebugLog("RAR_CHANNEL: [6c] Pipe's write-side FD is valid. Creating FileOutputStream.")
+
+                                FileOutputStream(writeSide.fileDescriptor).use { outputStream ->
+                                    sendDebugLog("RAR_CHANNEL: [6d] FileOutputStream created. Starting copyTo...")
+                                    smbStream.copyTo(outputStream) // The point of failure
+                                }
+                                sendDebugLog("RAR_CHANNEL: [7] SMB stream copy finished successfully.")
                             }
                         } catch (e: Exception) {
                             sendDebugLog("RAR_CHANNEL: [E1] ERROR copying SMB stream to pipe: ${e.message}")
